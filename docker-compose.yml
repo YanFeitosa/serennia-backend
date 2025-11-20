@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: serenna-db
+    restart: always
+    ports:
+      - "55432:5432"
+    environment:
+      POSTGRES_PASSWORD: serenna123
+      POSTGRES_DB: serenna
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

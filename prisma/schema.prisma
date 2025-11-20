@@ -1,0 +1,338 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// ENUMS
+
+enum UserRole {
+  admin
+  manager
+  receptionist
+  professional
+}
+
+enum CollaboratorStatus {
+  active
+  inactive
+}
+
+enum AppointmentStatus {
+  pending
+  in_progress
+  completed
+  canceled
+  no_show
+  not_paid
+}
+
+enum AppointmentOrigin {
+  whatsapp
+  app
+  totem
+  reception
+}
+
+enum OrderStatus {
+  open
+  closed
+  paid
+}
+
+enum OrderItemType {
+  service
+  product
+}
+
+enum PaymentMethod {
+  cash
+  card
+  pix
+  online
+}
+
+enum PaymentStatus {
+  pending
+  confirmed
+  failed
+}
+
+enum NotificationType {
+  info
+  warning
+  error
+}
+
+enum AuditAction {
+  INSERT
+  UPDATE
+  DELETE
+}
+
+/// MODELS
+
+model Salon {
+  id        String   @id @default(uuid())
+  name      String
+  document  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users             User[]
+  clients           Client[]
+  collaborators     Collaborator[]
+  services          Service[]
+  products          Product[]
+  appointments      Appointment[]
+  orders            Order[]
+  payments          Payment[]
+  commissionRecords CommissionRecord[]
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+  orderItems        OrderItem[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  salonId      String
+  name         String
+  email        String
+  passwordHash String
+  phone        String?
+  role         UserRole
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  salon            Salon          @relation(fields: [salonId], references: [id])
+  collaborator     Collaborator?
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  paymentsReceived Payment[]      @relation("PaymentsReceivedByUser")
+  ordersCreated    Order[]        @relation("OrdersCreatedByUser")
+
+  @@unique([salonId, email])
+}
+
+model Client {
+  id        String    @id @default(uuid())
+  salonId   String
+  name      String
+  phone     String
+  email     String?
+  lastVisit DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  salon        Salon         @relation(fields: [salonId], references: [id])
+  appointments Appointment[]
+  orders       Order[]
+}
+
+model Collaborator {
+  id                String             @id @default(uuid())
+  salonId           String
+  userId            String?            @unique
+  name              String
+  role              UserRole
+  status            CollaboratorStatus
+  phone             String?
+  email             String?
+  commissionRate    Decimal
+  serviceCategories String[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  salon Salon @relation(fields: [salonId], references: [id])
+  user  User? @relation(fields: [userId], references: [id])
+
+  appointments      Appointment[]
+  orderItems        OrderItem[]
+  commissionRecords CommissionRecord[]
+}
+
+model Service {
+  id          String   @id @default(uuid())
+  salonId     String
+  name        String
+  category    String?
+  description String?
+  duration    Int
+  price       Decimal
+  commission  Decimal?
+  bufferTime  Int?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  salon        Salon                @relation(fields: [salonId], references: [id])
+  appointments AppointmentService[]
+  orderItems   OrderItem[]
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  salonId     String
+  name        String
+  category    String?
+  description String?
+  price       Decimal
+  costPrice   Decimal?
+  stock       Int
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  salon      Salon       @relation(fields: [salonId], references: [id])
+  orderItems OrderItem[]
+}
+
+model Appointment {
+  id             String            @id @default(uuid())
+  salonId        String
+  clientId       String
+  collaboratorId String
+  start          DateTime
+  end            DateTime
+  status         AppointmentStatus
+  origin         AppointmentOrigin
+  notes          String?
+  orderId        String?           @unique
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  salon        Salon        @relation(fields: [salonId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  collaborator Collaborator @relation(fields: [collaboratorId], references: [id])
+
+  services AppointmentService[]
+  order    Order?               @relation("AppointmentToOrder", fields: [orderId], references: [id])
+}
+
+model AppointmentService {
+  appointmentId String
+  serviceId     String
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  service     Service     @relation(fields: [serviceId], references: [id])
+
+  @@id([appointmentId, serviceId])
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  salonId         String
+  clientId        String
+  status          OrderStatus @default(open)
+  finalValue      Decimal
+  createdAt       DateTime    @default(now())
+  closedAt        DateTime?
+  createdByUserId String?
+  updatedAt       DateTime?
+
+  salon     Salon  @relation(fields: [salonId], references: [id])
+  client    Client @relation(fields: [clientId], references: [id])
+  createdBy User?  @relation("OrdersCreatedByUser", fields: [createdByUserId], references: [id])
+
+  appointment       Appointment?       @relation("AppointmentToOrder")
+  items             OrderItem[]
+  payments          Payment[]
+  commissionRecords CommissionRecord[]
+}
+
+model OrderItem {
+  id             String        @id @default(uuid())
+  orderId        String
+  salonId        String
+  type           OrderItemType
+  serviceId      String?
+  productId      String?
+  collaboratorId String?
+  quantity       Int           @default(1)
+  price          Decimal
+  commission     Decimal
+  createdAt      DateTime      @default(now())
+
+  order        Order         @relation(fields: [orderId], references: [id])
+  salon        Salon         @relation(fields: [salonId], references: [id])
+  service      Service?      @relation(fields: [serviceId], references: [id])
+  product      Product?      @relation(fields: [productId], references: [id])
+  collaborator Collaborator? @relation(fields: [collaboratorId], references: [id])
+
+  commissionRecords CommissionRecord[]
+}
+
+model Payment {
+  id               String        @id @default(uuid())
+  orderId          String
+  salonId          String
+  method           PaymentMethod
+  amount           Decimal
+  status           PaymentStatus @default(pending)
+  transactionDate  DateTime      @default(now())
+  receivedByUserId String?
+
+  order      Order @relation(fields: [orderId], references: [id])
+  salon      Salon @relation(fields: [salonId], references: [id])
+  receivedBy User? @relation("PaymentsReceivedByUser", fields: [receivedByUserId], references: [id])
+}
+
+model CommissionRecord {
+  id             String    @id @default(uuid())
+  salonId        String
+  collaboratorId String
+  orderId        String
+  orderItemId    String?
+  amount         Decimal
+  paid           Boolean   @default(false)
+  paymentDate    DateTime?
+  periodStart    DateTime?
+  periodEnd      DateTime?
+
+  salon        Salon        @relation(fields: [salonId], references: [id])
+  collaborator Collaborator @relation(fields: [collaboratorId], references: [id])
+  order        Order        @relation(fields: [orderId], references: [id])
+  orderItem    OrderItem?   @relation(fields: [orderItemId], references: [id])
+}
+
+model AuditLog {
+  id        String      @id @default(uuid())
+  salonId   String
+  userId    String
+  action    AuditAction
+  tableName String
+  recordId  String
+  timestamp DateTime    @default(now())
+  oldValue  Json?
+  newValue  Json?
+  ipAddress String?
+  userAgent String?
+
+  salon Salon @relation(fields: [salonId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id        String            @id @default(uuid())
+  userId    String
+  salonId   String?
+  message   String
+  read      Boolean           @default(false)
+  createdAt DateTime          @default(now())
+  link      String?
+  type      NotificationType?
+
+  user  User   @relation(fields: [userId], references: [id])
+  salon Salon? @relation(fields: [salonId], references: [id])
+}

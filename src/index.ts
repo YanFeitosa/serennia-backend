@@ -50,6 +50,8 @@ async function getDefaultSalonId(): Promise<string> {
   const created = await prisma.salon.create({
     data: {
       name: "Default Salon",
+      defaultCommissionRate: 0.5,
+      commissionMode: "professional",
     },
   });
 
@@ -66,6 +68,16 @@ function mapClient(c: any) {
     lastVisit: c.lastVisit ? c.lastVisit.toISOString() : undefined,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
+  };
+}
+
+function mapSalonSettings(s: any) {
+  return {
+    id: s.id,
+    name: s.name,
+    defaultCommissionRate:
+      s.defaultCommissionRate != null ? Number(s.defaultCommissionRate) : null,
+    commissionMode: s.commissionMode ?? "professional",
   };
 }
 
@@ -203,6 +215,71 @@ app.get("/health", async (_req: Request, res: Response) => {
   } catch (error) {
     console.error("Health check failed", error);
     res.status(500).json({ status: "error", database: "down" });
+  }
+});
+
+app.get("/salon", async (_req: Request, res: Response) => {
+  try {
+    const salonId = await getDefaultSalonId();
+    const salon = await prisma.salon.findUnique({ where: { id: salonId } });
+
+    if (!salon) {
+      res.status(404).json({ error: "Salon not found" });
+      return;
+    }
+
+    res.json(mapSalonSettings(salon));
+  } catch (error) {
+    console.error("Error fetching salon settings", error);
+    res.status(500).json({ error: "Failed to fetch salon settings" });
+  }
+});
+
+app.patch("/salon", async (req: Request, res: Response) => {
+  try {
+    const { name, defaultCommissionRate, commissionMode } = req.body as {
+      name?: string;
+      defaultCommissionRate?: number;
+      commissionMode?: string;
+    };
+
+    const salonId = await getDefaultSalonId();
+
+    const data: any = {};
+    if (name !== undefined) data.name = name;
+
+    if (defaultCommissionRate !== undefined) {
+      if (
+        typeof defaultCommissionRate !== "number" ||
+        !Number.isFinite(defaultCommissionRate) ||
+        defaultCommissionRate < 0 ||
+        defaultCommissionRate > 1
+      ) {
+        res.status(400).json({ error: "defaultCommissionRate must be between 0 and 1" });
+        return;
+      }
+      data.defaultCommissionRate = defaultCommissionRate;
+    }
+
+    if (commissionMode !== undefined) {
+      if (commissionMode !== "service" && commissionMode !== "professional") {
+        res
+          .status(400)
+          .json({ error: "commissionMode must be 'service' or 'professional'" });
+        return;
+      }
+      data.commissionMode = commissionMode;
+    }
+
+    const updated = await prisma.salon.update({
+      where: { id: salonId },
+      data,
+    });
+
+    res.json(mapSalonSettings(updated));
+  } catch (error) {
+    console.error("Error updating salon settings", error);
+    res.status(500).json({ error: "Failed to update salon settings" });
   }
 });
 

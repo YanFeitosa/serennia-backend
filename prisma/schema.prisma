@@ -85,12 +85,19 @@ enum AuditAction {
   DELETE
 }
 
+enum CommissionMode {
+  service
+  professional
+}
+
 /// MODELS
 
 model Salon {
   id        String   @id @default(uuid())
   name      String
   document  String?
+  defaultCommissionRate Decimal        @default(0.5)
+  commissionMode       CommissionMode @default(professional)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -199,7 +199,6 @@ Modelo retornado (Service – igual ao front):
   duration: number,
   price: number,
   commission?: number,
-  bufferTime?: number,
   isActive: boolean,
   createdAt: string,
   updatedAt: string
@@ -228,7 +227,6 @@ POST /services
     "duration": number,
     "price": number,
     "commission"?: number,
-    "bufferTime"?: number,
     "isActive"?: boolean
   }
 - Regras:
@@ -375,7 +373,7 @@ POST /appointments
   - collaboratorId deve existir.
   - serviceIds deve conter pelo menos 1 serviço ATIVO do salão.
   - start deve ser data/hora válida no futuro.
-  - Calcula end = start + soma(duration + bufferTime) de todos os serviços.
+  - Calcula end = start + soma(duration) de todos os serviços.
   - Verifica overlap de horário para o mesmo collaboratorId considerando statuses bloqueantes.
 - Response 201: Appointment
 - Response 400/404/409: mensagens específicas

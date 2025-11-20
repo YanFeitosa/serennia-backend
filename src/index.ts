@@ -1,5 +1,5 @@
 import "dotenv/config";
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import { PrismaClient } from "./generated/prisma/client";
 import {
   UserRole,
@@ -18,7 +18,28 @@ import {
 const app = express();
 const prisma = new PrismaClient();
 
+const CORS_ORIGIN = process.env.FRONTEND_ORIGIN;
+
 app.use(express.json());
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.header("Access-Control-Allow-Origin", CORS_ORIGIN);
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PATCH,DELETE,OPTIONS"
+  );
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type,Authorization"
+  );
+
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+
+  next();
+});
 
 async function getDefaultSalonId(): Promise<string> {
   const existing = await prisma.salon.findFirst();
@@ -86,7 +107,6 @@ function mapService(s: any) {
     duration: s.duration,
     price: Number(s.price),
     commission: s.commission != null ? Number(s.commission) : undefined,
-    bufferTime: s.bufferTime ?? undefined,
     isActive: s.isActive,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
@@ -671,7 +691,6 @@ app.post("/services", async (req: Request, res: Response) => {
       duration,
       price,
       commission,
-      bufferTime,
       isActive,
     } = req.body as {
       name?: string;
@@ -680,7 +699,6 @@ app.post("/services", async (req: Request, res: Response) => {
       duration?: number;
       price?: number;
       commission?: number;
-      bufferTime?: number;
       isActive?: boolean;
     };
 
@@ -731,7 +749,6 @@ app.post("/services", async (req: Request, res: Response) => {
         duration,
         price,
         commission,
-        bufferTime,
         isActive: isActive ?? true,
       },
       include: { category: true },
@@ -783,7 +800,6 @@ app.patch("/services/:id", async (req: Request, res: Response) => {
     if (duration !== undefined) data.duration = duration;
     if (price !== undefined) data.price = price;
     if (commission !== undefined) data.commission = commission;
-    if (bufferTime !== undefined) data.bufferTime = bufferTime;
     if (isActive !== undefined) data.isActive = isActive;
 
     if (category !== undefined) {
@@ -1203,8 +1219,7 @@ async function validateAndComputeAppointment(
   }
 
   const totalMinutes = services.reduce((sum, s) => {
-    const buffer = s.bufferTime ?? 0;
-    return sum + s.duration + buffer;
+    return sum + s.duration;
   }, 0);
 
   const end = new Date(start.getTime() + totalMinutes * 60000);

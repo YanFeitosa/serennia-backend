@@ -74,6 +74,11 @@ enum NotificationType {
   error
 }
 
+enum CategoryType {
+  service
+  product
+}
+
 enum AuditAction {
   INSERT
   UPDATE
@@ -94,6 +99,7 @@ model Salon {
   collaborators     Collaborator[]
   services          Service[]
   products          Product[]
+  categories        Category[]
   appointments      Appointment[]
   orders            Order[]
   payments          Payment[]
@@ -138,6 +144,8 @@ model Client {
   salon        Salon         @relation(fields: [salonId], references: [id])
   appointments Appointment[]
   orders       Order[]
+
+  @@unique([salonId, phone])
 }
 
 model Collaborator {
@@ -160,13 +168,31 @@ model Collaborator {
   appointments      Appointment[]
   orderItems        OrderItem[]
   commissionRecords CommissionRecord[]
+
+  @@unique([salonId, phone])
+  @@unique([salonId, email])
+}
+
+model Category {
+  id        String       @id @default(uuid())
+  salonId   String
+  type      CategoryType
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  salon    Salon     @relation(fields: [salonId], references: [id])
+  services Service[] @relation("ServiceCategory")
+  products Product[] @relation("ProductCategory")
+
+  @@unique([salonId, type, name])
 }
 
 model Service {
   id          String   @id @default(uuid())
   salonId     String
   name        String
-  category    String?
+  categoryId  String?
   description String?
   duration    Int
   price       Decimal
@@ -177,6 +203,7 @@ model Service {
   updatedAt   DateTime @updatedAt
 
   salon        Salon                @relation(fields: [salonId], references: [id])
+  category     Category?            @relation("ServiceCategory", fields: [categoryId], references: [id])
   appointments AppointmentService[]
   orderItems   OrderItem[]
 }
@@ -185,7 +212,7 @@ model Product {
   id          String   @id @default(uuid())
   salonId     String
   name        String
-  category    String?
+  categoryId  String?
   description String?
   price       Decimal
   costPrice   Decimal?
@@ -195,6 +222,7 @@ model Product {
   updatedAt   DateTime @updatedAt
 
   salon      Salon       @relation(fields: [salonId], references: [id])
+  category   Category?   @relation("ProductCategory", fields: [categoryId], references: [id])
   orderItems OrderItem[]
 }
 

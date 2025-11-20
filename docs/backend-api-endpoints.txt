@@ -1,0 +1,557 @@
+# Serenna Backend API - Endpoints Implementados
+
+Base URL em desenvolvimento:
+- http://localhost:4000
+
+Formato geral:
+- Todas as requisições e respostas usam JSON.
+- Datas são strings ISO 8601 (ex.: "2025-11-20T12:34:56.789Z").
+- Em caso de erro, o backend retorna:
+  - status HTTP adequado (4xx / 5xx)
+  - body: { "error": string }
+
+==================================================
+1. HEALTH CHECK
+==================================================
+
+GET /health
+- Finalidade: verificar se o backend e o banco estão operacionais.
+- Request: sem body.
+- Response 200:
+  { "status": "ok", "database": "up" }
+- Response 500:
+  { "status": "error", "database": "down" }
+
+==================================================
+2. CLIENTES
+==================================================
+
+Modelo retornado (Client – igual ao front):
+{
+  id: string,
+  salonId: string,
+  name: string,
+  phone: string,
+  email?: string,
+  lastVisit?: string,
+  createdAt: string,
+  updatedAt: string
+}
+
+Observações:
+- Soft delete: clientes não são removidos fisicamente.
+- Campo interno isActive controla se aparece nas listagens.
+
+GET /clients
+- Lista todos os clientes ATIVOS do salão padrão.
+- Request: sem body.
+- Response 200: Client[]
+- Erros 5xx: { error }
+
+GET /clients/:id
+- Busca um cliente ATIVO específico.
+- Response 200: Client
+- Response 404: { error: "Client not found" }
+
+POST /clients
+- Cria cliente.
+- Body:
+  { "name": string, "phone": string, "email"?: string }
+- Regras:
+  - name e phone obrigatórios.
+  - phone deve ser único por salão.
+- Response 201: Client
+- Response 400: campos obrigatórios faltando.
+- Response 409: conflito de unicidade (telefone já usado).
+
+PATCH /clients/:id
+- Atualiza parcialmente um cliente ATIVO.
+- Body (qualquer subset):
+  {
+    "name"?: string,
+    "phone"?: string,
+    "email"?: string,
+    "lastVisit"?: string | null
+  }
+- Response 200: Client atualizado.
+- Response 404: { error: "Client not found" }
+- Response 409: conflito de unicidade (telefone já usado).
+
+DELETE /clients/:id
+- Soft delete: marca cliente como inativo (isActive = false).
+- Response 204: sem body.
+- Response 404: { error: "Client not found" }
+
+==================================================
+3. COLABORADORES
+==================================================
+
+Modelo retornado (Collaborator – igual ao front):
+{
+  id: string,
+  salonId: string,
+  userId?: string,
+  name: string,
+  role: "admin" | "manager" | "receptionist" | "professional",
+  status: "active" | "inactive",
+  phone?: string,
+  email?: string,
+  commissionRate: number,
+  serviceCategories?: string[],
+  createdAt: string,
+  updatedAt: string
+}
+
+Observações:
+- "Remoção" é feita via status = "inactive" (soft delete lógico).
+
+GET /collaborators
+- Lista colaboradores do salão (ativos e inativos).
+- Response 200: Collaborator[]
+
+GET /collaborators/:id
+- Busca colaborador específico.
+- Response 200: Collaborator
+- Response 404: { error: "Collaborator not found" }
+
+POST /collaborators
+- Cria colaborador.
+- Body:
+  {
+    "name": string,
+    "role": "admin" | "manager" | "receptionist" | "professional",
+    "status"?: "active" | "inactive", // default = "active"
+    "phone"?: string,
+    "email"?: string,
+    "commissionRate"?: number,           // default = 0
+    "serviceCategories"?: string[]
+  }
+- Regras:
+  - name e role obrigatórios.
+  - phone e email são únicos por salão (se informados).
+- Response 201: Collaborator
+- Response 400: campos obrigatórios faltando.
+- Response 409: conflito de unicidade (phone/email).
+
+PATCH /collaborators/:id
+- Atualiza parcialmente colaborador.
+- Body (qualquer subset dos campos acima).
+- Response 200: Collaborator
+- Response 404: { error: "Collaborator not found" }
+- Response 409: conflito de unicidade (phone/email).
+
+DELETE /collaborators/:id
+- Soft delete lógico: seta status = "inactive".
+- Response 204: sem body.
+- Response 404: { error: "Collaborator not found" }
+
+==================================================
+4. CATEGORIAS (SERVIÇO / PRODUTO)
+==================================================
+
+Modelo retornado (Category):
+{
+  id: string,
+  salonId: string,
+  type: "service" | "product",
+  name: string,
+  createdAt: string,
+  updatedAt: string
+}
+
+GET /categories?type=service|product
+- Lista categorias do salão para o tipo informado.
+- Query param obrigatório: type = "service" ou "product".
+- Response 200: Category[] ordenadas por name.
+- Response 400: type inválido/ausente.
+
+POST /categories
+- Cria nova categoria.
+- Body:
+  { "type": "service" | "product", "name": string }
+- Regras:
+  - (salonId, type, name) devem ser únicos.
+- Response 201: Category
+- Response 400: campos inválidos.
+- Response 409: categoria já existe.
+
+DELETE /categories/:id
+- Comportamento:
+  - Para qualquer type:
+    - Seta categoryId = null em todos os Services e Products que usavam essa category.
+  - Se for type = "service":
+    - Remove o nome da categoria do array serviceCategories de todos os colaboradores.
+  - Depois disso, deleta a Category.
+- Response 204: sem body.
+- Response 404: { error: "Category not found" }
+
+==================================================
+5. SERVIÇOS
+==================================================
+
+Modelo retornado (Service – igual ao front):
+{
+  id: string,
+  salonId: string,
+  name: string,
+  category?: string,
+  description?: string,
+  duration: number,
+  price: number,
+  commission?: number,
+  bufferTime?: number,
+  isActive: boolean,
+  createdAt: string,
+  updatedAt: string
+}
+
+Observações:
+- Soft delete: isActive = false.
+- Campo category é o nome da Category (type = "service"), opcional.
+
+GET /services
+- Lista apenas serviços ATIVOS do salão.
+- Response 200: Service[]
+
+GET /services/:id
+- Busca serviço ATIVO específico.
+- Response 200: Service
+- Response 404: { error: "Service not found" }
+
+POST /services
+- Cria serviço.
+- Body:
+  {
+    "name": string,
+    "category": string,        // obrigatório, nome da categoria
+    "description"?: string,
+    "duration": number,
+    "price": number,
+    "commission"?: number,
+    "bufferTime"?: number,
+    "isActive"?: boolean
+  }
+- Regras:
+  - name, duration e price obrigatórios.
+  - category obrigatório; se não existir, é criada automaticamente (type="service").
+- Response 201: Service
+- Response 400: campos faltando/invalidos.
+
+PATCH /services/:id
+- Atualiza parcialmente serviço ATIVO.
+- Body (qualquer subset dos campos do POST, incluindo category).
+- Regras para category:
+  - Se enviado string vazia/null → remove a categoria (categoryId = null).
+  - Se enviado nome válido → cria categoria service se não existir.
+- Response 200: Service
+- Response 404: { error: "Service not found" }
+
+DELETE /services/:id
+- Soft delete: isActive = false.
+- Response 204: sem body.
+- Response 404: { error: "Service not found" }
+
+==================================================
+6. PRODUTOS
+==================================================
+
+Modelo retornado (Product – igual ao front):
+{
+  id: string,
+  salonId: string,
+  name: string,
+  category?: string,
+  description?: string,
+  price: number,
+  costPrice?: number,
+  stock: number,
+  isActive: boolean,
+  createdAt: string,
+  updatedAt: string
+}
+
+Observações:
+- Soft delete: isActive = false.
+- Campo category é o nome da Category (type = "product"), opcional.
+
+GET /products
+- Lista apenas produtos ATIVOS do salão.
+- Response 200: Product[]
+
+GET /products/:id
+- Busca produto ATIVO específico.
+- Response 200: Product
+- Response 404: { error: "Product not found" }
+
+POST /products
+- Cria produto.
+- Body:
+  {
+    "name": string,
+    "category"?: string,
+    "description"?: string,
+    "price": number,
+    "costPrice"?: number,
+    "stock": number,
+    "isActive"?: boolean
+  }
+- Regras:
+  - name, price e stock obrigatórios.
+  - Se category informada, cria categoria product se não existir.
+- Response 201: Product
+- Response 400: campos faltando/invalidos.
+
+PATCH /products/:id
+- Atualiza parcialmente produto ATIVO.
+- Body (qualquer subset dos campos do POST, incluindo category).
+- Regras para category:
+  - Se enviado vazio/null → remove a categoria (categoryId = null).
+  - Se enviado nome válido → cria categoria product se não existir.
+- Response 200: Product
+- Response 404: { error: "Product not found" }
+
+DELETE /products/:id
+- Soft delete: isActive = false.
+- Response 204: sem body.
+- Response 404: { error: "Product not found" }
+
+==================================================
+7. AGENDAMENTOS (APPOINTMENTS)
+==================================================
+
+Modelo retornado (Appointment – igual ao front):
+{
+  id: string,
+  salonId: string,
+  clientId: string,
+  collaboratorId: string,
+  serviceIds: string[],
+  start: string,
+  end: string,
+  status: "pending" | "in_progress" | "completed" | "canceled" | "no_show" | "not_paid",
+  origin: "whatsapp" | "app" | "totem" | "reception",
+  notes?: string,
+  orderId?: string,
+  createdAt: string,
+  updatedAt: string
+}
+
+Observações importantes:
+- Um Appointment pode ter vários serviços via tabela de junção AppointmentService.
+- start e end são calculados a partir dos serviços no create/update.
+- Overlap:
+  - Um colaborador não pode ter dois appointments ao mesmo tempo com status:
+    ["pending", "in_progress", "completed", "not_paid"].
+- Clientes e serviços precisam estar ativos.
+
+GET /appointments
+- Lista appointments com filtros opcionais.
+- Query params:
+  - dateFrom?: string (filtra start >= dateFrom)
+  - dateTo?: string   (filtra start <= dateTo)
+  - collaboratorId?: string
+  - status?: AppointmentStatus
+- Response 200: Appointment[] ordenados por start asc.
+- Response 400: dateFrom/dateTo inválidos.
+
+GET /appointments/:id
+- Busca um agendamento específico.
+- Response 200: Appointment
+- Response 404: { error: "Appointment not found" }
+
+POST /appointments
+- Cria um novo agendamento.
+- Body:
+  {
+    "clientId": string,
+    "collaboratorId": string,
+    "serviceIds": string[],
+    "start": string,              // ISO
+    "origin": "whatsapp" | "app" | "totem" | "reception",
+    "notes"?: string
+  }
+- Regras/validações:
+  - clientId deve existir e estar ativo.
+  - collaboratorId deve existir.
+  - serviceIds deve conter pelo menos 1 serviço ATIVO do salão.
+  - start deve ser data/hora válida no futuro.
+  - Calcula end = start + soma(duration + bufferTime) de todos os serviços.
+  - Verifica overlap de horário para o mesmo collaboratorId considerando statuses bloqueantes.
+- Response 201: Appointment
+- Response 400/404/409: mensagens específicas
+  - 400: data inválida, nenhum serviço, etc.
+  - 404: cliente ou colaborador não encontrados.
+  - 409: overlap de agendamento.
+
+PATCH /appointments/:id
+- Edita um appointment EXISTENTE, somente se status atual = 'pending'.
+- Body (todos opcionais):
+  {
+    "clientId"?: string,
+    "collaboratorId"?: string,
+    "serviceIds"?: string[],
+    "start"?: string,
+    "origin"?: AppointmentOrigin,
+    "notes"?: string
+  }
+- Aplica as mesmas validações de criação (cliente/colaborador/serviços/datas/overlap).
+- Recalcula end.
+- Response 200: Appointment atualizado.
+- Response 400: se status atual != 'pending' ou dados inválidos.
+- Response 404: { error: "Appointment not found" }.
+- Response 409: overlap.
+
+POST /appointments/:id/status
+- Atualiza apenas o status do agendamento.
+- Body:
+  { "status": AppointmentStatus }
+- Regras de transição (enforced no backend):
+  - De 'pending'      → ['in_progress', 'canceled', 'no_show']
+  - De 'in_progress'  → ['completed', 'not_paid']
+  - De 'completed'    → ['not_paid']
+  - De 'canceled'     → [] (sem transições válidas)
+  - De 'no_show'      → []
+  - De 'not_paid'     → []
+- Se a transição não for permitida, retorna 400.
+- Response 200: Appointment atualizado.
+--- Response 400: transição inválida.
+
+==================================================
+8. ORDERS / COMANDAS
+==================================================
+
+Modelo retornado (Order – compatível com o front, com alguns campos extras úteis):
+{
+  id: string,
+  salonId: string,
+  clientId: string,
+  items: OrderItem[],
+  status: "open" | "closed" | "paid",
+  finalValue: number,
+  createdAt: string,
+  closedAt?: string,
+  appointmentId?: string,
+  createdByUserId?: string,
+  updatedAt?: string
+}
+
+Modelo retornado (OrderItem):
+{
+  id: string,
+  salonId: string,
+  type: "service" | "product",
+  serviceId?: string,
+  productId?: string,
+  collaboratorId?: string,
+  quantity?: number,
+  price: number,
+  commission: number
+}
+
+GET /orders
+- Lista comandas com filtros opcionais.
+- Query params:
+  - status?: "open" | "closed" | "paid"
+  - clientId?: string
+  - dateFrom?: string (filtra createdAt >= dateFrom)
+  - dateTo?: string   (filtra createdAt <= dateTo)
+  - search?: string   (faz busca por id da ordem e nome do cliente)
+- Response 200: Order[] (com items).
+- Response 400: dateFrom/dateTo inválidos.
+
+GET /orders/:id
+- Busca uma comanda específica.
+- Response 200: Order (com items).
+- Response 404: { error: "Order not found" }
+
+POST /orders
+- Cria uma nova comanda aberta para um cliente.
+- Body:
+  { "clientId": string }
+- Regras:
+  - clientId deve existir e estar ativo.
+- Response 201: Order
+- Response 400: clientId ausente.
+- Response 404: { error: "Client not found" }
+
+PATCH /orders/:id
+- Atualiza campos básicos da comanda (hoje apenas clientId), somente se status = 'open'.
+- Body:
+  { "clientId"?: string }
+- Regras:
+  - Se trocar clientId, o novo cliente deve existir e estar ativo.
+- Response 200: Order atualizada.
+- Response 400: se a ordem não estiver 'open'.
+- Response 404: { error: "Order not found" } ou { error: "Client not found" }.
+
+POST /orders/:id/items
+- Adiciona um item de serviço ou produto na comanda.
+- Body para serviço:
+  {
+    "type": "service",
+    "serviceId": string,
+    "collaboratorId"?: string,
+    "quantity"?: number
+  }
+- Body para produto:
+  {
+    "type": "product",
+    "productId": string,
+    "quantity"?: number
+  }
+- Regras:
+  - Order deve existir e estar com status = 'open'.
+  - Para type = 'service': serviceId obrigatório, serviço deve existir e estar ativo.
+  - Para type = 'product': productId obrigatório, produto deve existir e estar ativo.
+  - Se collaboratorId informado para serviço, colaborador deve existir.
+  - quantity default = 1 se não informado ou <= 0.
+  - finalValue é recalculado como soma(price * quantity) de todos os items.
+- Response 201: Order atualizada (com items).
+- Response 400/404 conforme erro:
+  - 400: type inválido, ordem não está 'open', dados obrigatórios ausentes.
+  - 404: order/service/product/collaborator não encontrados.
+
+DELETE /orders/:id/items/:itemId
+- Remove um item de uma comanda aberta e recalcula finalValue.
+- Regras:
+  - Order deve existir e estar 'open'.
+  - Item deve existir na ordem.
+- Response 200: Order atualizada (com items).
+- Response 400: se a ordem não estiver 'open'.
+- Response 404: { error: "Order not found" } ou { error: "Order item not found" }.
+
+POST /orders/:id/close
+- Fecha uma comanda (status 'open' → 'closed').
+- Regras:
+  - Apenas orders com status = 'open' podem ser fechadas.
+- Efeitos:
+  - status = 'closed'
+  - closedAt = now
+- Response 200: Order atualizada.
+- Response 400: se a ordem não estiver 'open'.
+- Response 404: { error: "Order not found" }.
+
+POST /orders/:id/pay
+- Marca uma comanda fechada como paga (status 'closed' → 'paid').
+- Regras:
+  - Apenas orders com status = 'closed' podem ser marcadas como 'paid'.
+- Efeitos:
+  - status = 'paid'
+  - closedAt é mantido se já existir; caso contrário, é definido como now.
+- Response 200: Order atualizada.
+- Response 400: se a ordem não estiver 'closed'.
+- Response 404: { error: "Order not found" }.
+
+POST /appointments/:id/order/ensure
+- Garante a existência de uma comanda para um agendamento e sincroniza os serviços do agendamento como itens da comanda.
+- Lógica resumida:
+  1. Tenta encontrar uma order já vinculada ao appointment (orders.appointment_id == :id).
+  2. Se não achar e appointment.order_id estiver setado, tenta essa order.
+  3. Se ainda não achar, procura uma order 'open' do mesmo clientId sem appointment associado (caso walk-in) e reutiliza.
+  4. Se nenhuma existir, cria uma nova order 'open' para o clientId do appointment.
+  5. Para cada serviço do appointment, garante que exista um order_item do tipo 'service' com mesmo serviceId + collaboratorId. Não cria duplicatas.
+  6. Recalcula finalValue da order com base em todos os itens.
+  7. Garante o vínculo 2-vias: appointments.order_id e orders.appointment_id.
+- Response 200: Order resultante (com items).
+- Response 404: { error: "Appointment not found" }.
+- Response 500: erro interno em caso de falha na operação.

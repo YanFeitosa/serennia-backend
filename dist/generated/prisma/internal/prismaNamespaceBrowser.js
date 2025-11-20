@@ -126,6 +126,7 @@ exports.ClientScalarFieldEnum = {
     phone: 'phone',
     email: 'email',
     lastVisit: 'lastVisit',
+    isActive: 'isActive',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
 };

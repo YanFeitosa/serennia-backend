@@ -1,7 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { getDefaultSalonId } from '../salonContext';
-import { AppointmentStatus, AppointmentOrigin } from '../types/enums';
+import { AuthRequest } from '../middleware/auth';
+import { AppointmentStatus, AppointmentOrigin, OrderItemType } from '../types/enums';
+import { sendWhatsAppMessage, replaceTemplateVariables } from '../services/whatsapp';
+import { MessageStatus } from '../types/enums';
+import { createRateLimiter } from '../middleware/rateLimiter';
 
 function mapAppointment(a: any) {
   return {
@@ -36,6 +39,85 @@ const APPOINTMENT_STATUS_TRANSITIONS: Record<AppointmentStatus, AppointmentStatu
   no_show: [],
   not_paid: [],
 };
+
+/**
+ * Envia mensagem de confirmação automaticamente quando um agendamento é criado/atualizado
+ */
+async function sendAppointmentConfirmation(appointment: any) {
+  try {
+    const salonId = appointment.salonId; // Already validated from appointment
+    
+    // Buscar template de confirmação ativo
+    const template = await prisma.messageTemplate.findFirst({
+      where: {
+        salonId,
+        name: 'Confirmação de Agendamento',
+        channel: 'whatsapp',
+        isActive: true,
+      },
+    });
+
+    if (!template) {
+      // Se não houver template, não envia (não é erro)
+      return;
+    }
+
+    const client = appointment.client;
+    if (!client || !client.phone) {
+      return;
+    }
+
+    // Preparar variáveis
+    const variables: Record<string, string | number> = {
+      cliente_nome: client.name,
+      data: new Date(appointment.start).toLocaleDateString('pt-BR'),
+      horario: new Date(appointment.start).toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      colaborador: appointment.collaborator?.name || '',
+      servico: appointment.services
+        ?.map((as: any) => as.service?.name || '')
+        .filter(Boolean)
+        .join(', ') || '',
+    };
+
+    // Substituir variáveis
+    const messageContent = replaceTemplateVariables(template.content, variables);
+
+    // Criar log
+    const messageLog = await prisma.messageLog.create({
+      data: {
+        salonId,
+        templateId: template.id,
+        appointmentId: appointment.id,
+        clientId: client.id,
+        channel: 'whatsapp',
+        content: messageContent,
+        status: 'pending',
+      },
+    });
+
+    // Enviar mensagem
+    const result = await sendWhatsAppMessage({
+      to: client.phone,
+      message: messageContent,
+    });
+
+    // Atualizar log
+    await prisma.messageLog.update({
+      where: { id: messageLog.id },
+      data: {
+        status: result.success ? 'sent' : 'failed',
+        sentAt: result.success ? new Date() : null,
+        errorMessage: result.error ?? null,
+      },
+    });
+  } catch (error) {
+    console.error('Error in sendAppointmentConfirmation', error);
+    // Não propaga o erro para não bloquear a criação do agendamento
+  }
+}
 
 async function validateAndComputeAppointment(
   salonId: string,
@@ -107,9 +189,14 @@ async function validateAndComputeAppointment(
 
 const appointmentsRouter = Router();
 
-appointmentsRouter.get('/', async (req: Request, res: Response) => {
+appointmentsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const { dateFrom, dateTo, collaboratorId, status } = req.query as {
       dateFrom?: string;
@@ -164,9 +251,14 @@ appointmentsRouter.get('/', async (req: Request, res: Response) => {
   }
 });
 
-appointmentsRouter.get('/:id', async (req: Request, res: Response) => {
+appointmentsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const appointment = await prisma.appointment.findFirst({
       where: { id: req.params.id, salonId },
@@ -185,7 +277,7 @@ appointmentsRouter.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-appointmentsRouter.post('/', async (req: Request, res: Response) => {
+appointmentsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { clientId, collaboratorId, serviceIds, start, notes, origin } =
       req.body as {
@@ -204,7 +296,12 @@ appointmentsRouter.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     let computed;
     try {
@@ -259,8 +356,23 @@ appointmentsRouter.post('/', async (req: Request, res: Response) => {
           create: serviceIds.map((serviceId) => ({ serviceId })),
         },
       },
-      include: { services: true },
+      include: {
+        services: {
+          include: {
+            service: true,
+          },
+        },
+        collaborator: true,
+        client: true,
+      },
     });
+
+    // Tentar enviar mensagem de confirmação automaticamente (não bloqueia se falhar)
+    try {
+      await sendAppointmentConfirmation(appointment);
+    } catch (error) {
+      console.error('Failed to send confirmation message (non-blocking)', error);
+    }
 
     res.status(201).json(mapAppointment(appointment));
   } catch (error) {
@@ -269,7 +381,7 @@ appointmentsRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-appointmentsRouter.patch('/:id', async (req: Request, res: Response) => {
+appointmentsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const {
       clientId,
@@ -287,7 +399,12 @@ appointmentsRouter.patch('/:id', async (req: Request, res: Response) => {
       origin?: AppointmentOrigin;
     };
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.appointment.findFirst({
       where: { id: req.params.id, salonId },
@@ -383,7 +500,7 @@ appointmentsRouter.patch('/:id', async (req: Request, res: Response) => {
   }
 });
 
-appointmentsRouter.post('/:id/status', async (req: Request, res: Response) => {
+appointmentsRouter.post('/:id/status', async (req: AuthRequest, res: Response) => {
   try {
     const { status } = req.body as { status?: AppointmentStatus };
 
@@ -392,7 +509,12 @@ appointmentsRouter.post('/:id/status', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const appointment = await prisma.appointment.findFirst({
       where: { id: req.params.id, salonId },
@@ -427,4 +549,310 @@ appointmentsRouter.post('/:id/status', async (req: Request, res: Response) => {
   }
 });
 
+function mapOrderItem(item: any) {
+  return {
+    id: item.id,
+    salonId: item.salonId,
+    type: item.type,
+    serviceId: item.serviceId ?? undefined,
+    productId: item.productId ?? undefined,
+    collaboratorId: item.collaboratorId ?? undefined,
+    quantity: item.quantity ?? undefined,
+    price: Number(item.price),
+    commission: Number(item.commission),
+  };
+}
+
+function mapOrder(o: any) {
+  return {
+    id: o.id,
+    salonId: o.salonId,
+    clientId: o.clientId,
+    items: (o.items ?? []).map(mapOrderItem),
+    status: o.status,
+    finalValue: Number(o.finalValue),
+    createdAt: o.createdAt.toISOString(),
+    closedAt: o.closedAt ? o.closedAt.toISOString() : undefined,
+    appointmentId: o.appointment ? o.appointment.id : undefined,
+    createdByUserId: o.createdByUserId ?? undefined,
+    updatedAt: o.updatedAt ? o.updatedAt.toISOString() : undefined,
+  };
+}
+
+appointmentsRouter.post('/:id/order/ensure', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
+
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: req.params.id, salonId },
+      include: { services: true, order: true },
+    });
+
+    if (!appointment) {
+      res.status(404).json({ error: 'Appointment not found' });
+      return;
+    }
+
+    let existingOrder = await prisma.order.findFirst({
+      where: {
+        salonId,
+        appointment: { id: appointment.id },
+      },
+      include: { items: true, appointment: true },
+    });
+
+    if (!existingOrder && appointment.orderId) {
+      existingOrder = await prisma.order.findFirst({
+        where: { id: appointment.orderId, salonId },
+        include: { items: true, appointment: true },
+      });
+    }
+
+    if (!existingOrder) {
+      existingOrder = await prisma.order.findFirst({
+        where: {
+          salonId,
+          clientId: appointment.clientId,
+          status: 'open',
+          appointment: null,
+        },
+        include: { items: true, appointment: true },
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      let order = existingOrder;
+
+      if (!order) {
+        order = await tx.order.create({
+          data: {
+            salonId,
+            clientId: appointment.clientId,
+            status: 'open',
+            finalValue: 0,
+          },
+          include: { items: true, appointment: true },
+        });
+      } else {
+        order = await tx.order.findFirst({
+          where: { id: order.id },
+          include: { items: true, appointment: true },
+        });
+      }
+
+      if (!order) {
+        throw new Error('ORDER_CREATION_FAILED');
+      }
+
+      if (!appointment.orderId || appointment.orderId !== order.id) {
+        await tx.appointment.update({
+          where: { id: appointment.id },
+          data: { orderId: order.id },
+        });
+      }
+
+      const serviceIds = (appointment.services ?? []).map((s: any) => s.serviceId);
+
+      const services = await tx.service.findMany({
+        where: { salonId, id: { in: serviceIds } },
+      });
+
+      const servicesById = new Map<string, any>();
+      for (const s of services) {
+        servicesById.set(s.id, s);
+      }
+
+      const existingItems = await tx.orderItem.findMany({
+        where: { orderId: order.id, salonId },
+      });
+
+      for (const apService of appointment.services ?? []) {
+        const serviceId = apService.serviceId;
+        const alreadyExists = existingItems.some((it) => {
+          return (
+            it.type === 'service' &&
+            it.serviceId === serviceId &&
+            it.collaboratorId === appointment.collaboratorId
+          );
+        });
+
+        if (alreadyExists) {
+          continue;
+        }
+
+        const service = servicesById.get(serviceId);
+        if (!service) {
+          continue;
+        }
+
+        await tx.orderItem.create({
+          data: {
+            orderId: order.id,
+            salonId,
+            type: 'service',
+            serviceId,
+            collaboratorId: appointment.collaboratorId,
+            quantity: 1,
+            price: Number(service.price),
+            commission: 0,
+          },
+        });
+      }
+
+      const allItems = await tx.orderItem.findMany({
+        where: { orderId: order.id, salonId },
+      });
+
+      const finalValue = allItems.reduce((sum, it) => {
+        const q = it.quantity ?? 1;
+        return sum + Number(it.price) * q;
+      }, 0);
+
+      const finalOrder = await tx.order.update({
+        where: { id: order.id },
+        data: { finalValue },
+        include: { items: true, appointment: true },
+      });
+
+      return finalOrder;
+    });
+
+    res.json(mapOrder(result));
+  } catch (error) {
+    console.error('Error ensuring order for appointment', error);
+    res.status(500).json({ error: 'Failed to ensure order for appointment' });
+  }
+});
+
+// POST /appointments/:id/send-confirmation - Enviar confirmação manualmente
+appointmentsRouter.post('/:id/send-confirmation', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
+    const { id } = req.params;
+    const { templateId } = req.body as { templateId?: string };
+
+    const appointment = await prisma.appointment.findFirst({
+      where: { id, salonId },
+      include: {
+        services: {
+          include: {
+            service: true,
+          },
+        },
+        collaborator: true,
+        client: true,
+      },
+    });
+
+    if (!appointment) {
+      res.status(404).json({ error: 'Appointment not found' });
+      return;
+    }
+
+    if (!appointment.client.phone) {
+      res.status(400).json({ error: 'Client does not have a phone number' });
+      return;
+    }
+
+    // Se templateId fornecido, usar esse template, senão buscar o padrão
+    let template;
+    if (templateId) {
+      template = await prisma.messageTemplate.findFirst({
+        where: { id: templateId, salonId, isActive: true },
+      });
+    } else {
+      template = await prisma.messageTemplate.findFirst({
+        where: {
+          salonId,
+          name: 'Confirmação de Agendamento',
+          channel: 'whatsapp',
+          isActive: true,
+        },
+      });
+    }
+
+    if (!template) {
+      res.status(404).json({ error: 'No active confirmation template found' });
+      return;
+    }
+
+    // Preparar variáveis
+    const variables: Record<string, string | number> = {
+      cliente_nome: appointment.client.name,
+      data: new Date(appointment.start).toLocaleDateString('pt-BR'),
+      horario: new Date(appointment.start).toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      colaborador: appointment.collaborator?.name || '',
+      servico: appointment.services
+        ?.map((as: any) => as.service?.name || '')
+        .filter(Boolean)
+        .join(', ') || '',
+    };
+
+    // Substituir variáveis
+    const messageContent = replaceTemplateVariables(template.content, variables);
+
+    // Criar log
+    const messageLog = await prisma.messageLog.create({
+      data: {
+        salonId,
+        templateId: template.id,
+        appointmentId: appointment.id,
+        clientId: appointment.client.id,
+        channel: 'whatsapp',
+        content: messageContent,
+        status: 'pending',
+      },
+    });
+
+    // Enviar mensagem
+    const result = await sendWhatsAppMessage({
+      to: appointment.client.phone,
+      message: messageContent,
+    });
+
+    // Atualizar log
+    await prisma.messageLog.update({
+      where: { id: messageLog.id },
+      data: {
+        status: result.success ? 'sent' : 'failed',
+        sentAt: result.success ? new Date() : null,
+        errorMessage: result.error ?? null,
+      },
+    });
+
+    if (!result.success) {
+      res.status(500).json({
+        error: 'Failed to send message',
+        details: result.error,
+        logId: messageLog.id,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      logId: messageLog.id,
+      message: messageContent,
+    });
+  } catch (error) {
+    console.error('Error sending confirmation', error);
+    res.status(500).json({ error: 'Failed to send confirmation' });
+  }
+});
+
+// Exportar função para uso em outras rotas
+export { sendAppointmentConfirmation };
 export { appointmentsRouter };

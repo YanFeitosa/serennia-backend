@@ -1,6 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { getDefaultSalonId } from '../salonContext';
+import { AuthRequest } from '../middleware/auth';
+import { sanitizeString } from '../utils/validation';
+import { createRateLimiter } from '../middleware/rateLimiter';
 
 function mapProduct(p: any) {
   return {
@@ -20,9 +22,14 @@ function mapProduct(p: any) {
 
 const productsRouter = Router();
 
-productsRouter.get('/', async (_req: Request, res: Response) => {
+productsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const products = await prisma.product.findMany({
       where: { salonId, isActive: true },
@@ -37,9 +44,14 @@ productsRouter.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-productsRouter.get('/:id', async (req: Request, res: Response) => {
+productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const product = await prisma.product.findFirst({
       where: { id: req.params.id, salonId, isActive: true },
@@ -58,7 +70,7 @@ productsRouter.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-productsRouter.post('/', async (req: Request, res: Response) => {
+productsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const {
       name,
@@ -85,7 +97,12 @@ productsRouter.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     let categoryRecord = null;
     if (category) {
@@ -114,15 +131,23 @@ productsRouter.post('/', async (req: Request, res: Response) => {
       }
     }
 
+    const sanitizedName = sanitizeString(name);
+    if (sanitizedName.length < 2) {
+      res.status(400).json({ error: 'name must be at least 2 characters long' });
+      return;
+    }
+
+    const sanitizedDescription = description ? sanitizeString(description) : null;
+
     const product = await prisma.product.create({
       data: {
         salonId,
-        name,
+        name: sanitizedName,
         categoryId: categoryRecord?.id,
-        description,
+        description: sanitizedDescription,
         price,
-        costPrice,
-        stock,
+        costPrice: costPrice != null ? costPrice : null,
+        stock: stock ?? 0,
         isActive: isActive ?? true,
       },
       include: { category: true },
@@ -135,7 +160,7 @@ productsRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-productsRouter.patch('/:id', async (req: Request, res: Response) => {
+productsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const {
       name,
@@ -155,7 +180,12 @@ productsRouter.patch('/:id', async (req: Request, res: Response) => {
       isActive?: boolean;
     };
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.product.findFirst({
       where: { id: req.params.id, salonId, isActive: true },
@@ -167,11 +197,38 @@ productsRouter.patch('/:id', async (req: Request, res: Response) => {
     }
 
     const data: any = {};
-    if (name !== undefined) data.name = name;
-    if (description !== undefined) data.description = description;
-    if (price !== undefined) data.price = price;
-    if (costPrice !== undefined) data.costPrice = costPrice;
-    if (stock !== undefined) data.stock = stock;
+    if (name !== undefined) {
+      const sanitizedName = sanitizeString(name);
+      if (sanitizedName.length < 2) {
+        res.status(400).json({ error: 'name must be at least 2 characters long' });
+        return;
+      }
+      data.name = sanitizedName;
+    }
+    if (description !== undefined) {
+      data.description = description ? sanitizeString(description) : null;
+    }
+    if (price !== undefined) {
+      if (price < 0) {
+        res.status(400).json({ error: 'price must be non-negative' });
+        return;
+      }
+      data.price = price;
+    }
+    if (costPrice !== undefined) {
+      if (costPrice != null && costPrice < 0) {
+        res.status(400).json({ error: 'costPrice must be non-negative' });
+        return;
+      }
+      data.costPrice = costPrice;
+    }
+    if (stock !== undefined) {
+      if (stock < 0) {
+        res.status(400).json({ error: 'stock must be non-negative' });
+        return;
+      }
+      data.stock = stock;
+    }
     if (isActive !== undefined) data.isActive = isActive;
 
     if (category !== undefined) {
@@ -219,9 +276,14 @@ productsRouter.patch('/:id', async (req: Request, res: Response) => {
   }
 });
 
-productsRouter.delete('/:id', async (req: Request, res: Response) => {
+productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.product.findFirst({
       where: { id: req.params.id, salonId },

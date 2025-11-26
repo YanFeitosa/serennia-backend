@@ -1,3 +1,18 @@
+# ============================================
+# DEPRECATED: Docker PostgreSQL Database
+# ============================================
+# This file is kept for reference but is no longer used.
+# The project has been migrated to use Supabase PostgreSQL database.
+#
+# To use Supabase instead:
+# 1. Create a project at https://supabase.com
+# 2. Get your connection string from Settings > Database
+# 3. Set DATABASE_URL in your .env file
+# 4. Run: npx prisma migrate deploy
+#
+# This docker-compose.yml can be safely removed or kept for local development.
+# ============================================
+
 version: "3.9"
 
 services:

@@ -1,6 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { getDefaultSalonId } from '../salonContext';
+import { AuthRequest } from '../middleware/auth';
+import { sanitizeString } from '../utils/validation';
+import { createRateLimiter } from '../middleware/rateLimiter';
 
 function mapService(s: any) {
   return {
@@ -20,9 +22,14 @@ function mapService(s: any) {
 
 const servicesRouter = Router();
 
-servicesRouter.get('/', async (_req: Request, res: Response) => {
+servicesRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const services = await prisma.service.findMany({
       where: { salonId, isActive: true },
@@ -37,9 +44,14 @@ servicesRouter.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-servicesRouter.get('/:id', async (req: Request, res: Response) => {
+servicesRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const service = await prisma.service.findFirst({
       where: { id: req.params.id, salonId, isActive: true },
@@ -58,8 +70,13 @@ servicesRouter.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-servicesRouter.post('/', async (req: Request, res: Response) => {
+servicesRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
     const {
       name,
       category,
@@ -90,7 +107,27 @@ servicesRouter.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    // Validate and sanitize input
+    const sanitizedName = sanitizeString(name);
+    if (sanitizedName.length < 2) {
+      res.status(400).json({ error: 'name must be at least 2 characters long' });
+      return;
+    }
+
+    if (duration <= 0) {
+      res.status(400).json({ error: 'duration must be greater than 0' });
+      return;
+    }
+
+    if (price < 0) {
+      res.status(400).json({ error: 'price must be non-negative' });
+      return;
+    }
+
+    const sanitizedCategory = sanitizeString(category);
+    const sanitizedDescription = description ? sanitizeString(description) : null;
+
+    const salonId = req.user.salonId;
 
     let categoryRecord = await prisma.category.findFirst({
       where: { salonId, type: 'service', name: category },
@@ -119,12 +156,12 @@ servicesRouter.post('/', async (req: Request, res: Response) => {
     const service = await prisma.service.create({
       data: {
         salonId,
-        name,
+        name: sanitizedName,
         categoryId: categoryRecord?.id,
-        description,
+        description: sanitizedDescription,
         duration,
         price,
-        commission,
+        commission: commission != null && commission >= 0 ? commission : null,
         isActive: isActive ?? true,
       },
       include: { category: true },
@@ -137,8 +174,13 @@ servicesRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-servicesRouter.patch('/:id', async (req: Request, res: Response) => {
+servicesRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
     const {
       name,
       category,
@@ -159,7 +201,7 @@ servicesRouter.patch('/:id', async (req: Request, res: Response) => {
       isActive?: boolean;
     };
 
-    const salonId = await getDefaultSalonId();
+    const salonId = req.user.salonId;
 
     const existing = await prisma.service.findFirst({
       where: { id: req.params.id, salonId, isActive: true },
@@ -171,11 +213,38 @@ servicesRouter.patch('/:id', async (req: Request, res: Response) => {
     }
 
     const data: any = {};
-    if (name !== undefined) data.name = name;
-    if (description !== undefined) data.description = description;
-    if (duration !== undefined) data.duration = duration;
-    if (price !== undefined) data.price = price;
-    if (commission !== undefined) data.commission = commission;
+    if (name !== undefined) {
+      const sanitizedName = sanitizeString(name);
+      if (sanitizedName.length < 2) {
+        res.status(400).json({ error: 'name must be at least 2 characters long' });
+        return;
+      }
+      data.name = sanitizedName;
+    }
+    if (description !== undefined) {
+      data.description = description ? sanitizeString(description) : null;
+    }
+    if (duration !== undefined) {
+      if (duration <= 0) {
+        res.status(400).json({ error: 'duration must be greater than 0' });
+        return;
+      }
+      data.duration = duration;
+    }
+    if (price !== undefined) {
+      if (price < 0) {
+        res.status(400).json({ error: 'price must be non-negative' });
+        return;
+      }
+      data.price = price;
+    }
+    if (commission !== undefined) {
+      if (commission != null && (commission < 0 || commission > 1)) {
+        res.status(400).json({ error: 'commission must be between 0 and 1' });
+        return;
+      }
+      data.commission = commission;
+    }
     if (isActive !== undefined) data.isActive = isActive;
 
     if (category !== undefined) {
@@ -223,9 +292,14 @@ servicesRouter.patch('/:id', async (req: Request, res: Response) => {
   }
 });
 
-servicesRouter.delete('/:id', async (req: Request, res: Response) => {
+servicesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.service.findFirst({
       where: { id: req.params.id, salonId },

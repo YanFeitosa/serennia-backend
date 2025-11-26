@@ -1,7 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { getDefaultSalonId } from '../salonContext';
+import { AuthRequest } from '../middleware/auth';
 import { OrderStatus, OrderItemType } from '../types/enums';
+import { createRateLimiter } from '../middleware/rateLimiter';
 
 function mapOrderItem(item: any) {
   return {
@@ -35,9 +36,14 @@ function mapOrder(o: any) {
 
 const ordersRouter = Router();
 
-ordersRouter.get('/', async (req: Request, res: Response) => {
+ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const { status, clientId, dateFrom, dateTo, search } = req.query as {
       status?: OrderStatus;
@@ -82,8 +88,8 @@ ordersRouter.get('/', async (req: Request, res: Response) => {
 
     if (search) {
       where.OR = [
-        { id: { contains: search } },
-        { client: { name: { contains: search } } },
+        { id: { contains: search, mode: 'insensitive' } },
+        { client: { name: { contains: search, mode: 'insensitive' } } },
       ];
     }
 
@@ -100,9 +106,14 @@ ordersRouter.get('/', async (req: Request, res: Response) => {
   }
 });
 
-ordersRouter.get('/:id', async (req: Request, res: Response) => {
+ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const order = await prisma.order.findFirst({
       where: { id: req.params.id, salonId },
@@ -121,7 +132,7 @@ ordersRouter.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-ordersRouter.post('/', async (req: Request, res: Response) => {
+ordersRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { clientId } = req.body as { clientId?: string };
 
@@ -130,7 +141,12 @@ ordersRouter.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const client = await prisma.client.findFirst({
       where: { id: clientId, salonId, isActive: true },
@@ -158,11 +174,16 @@ ordersRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-ordersRouter.patch('/:id', async (req: Request, res: Response) => {
+ordersRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { clientId } = req.body as { clientId?: string };
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.order.findFirst({
       where: { id: req.params.id, salonId },
@@ -207,7 +228,7 @@ ordersRouter.patch('/:id', async (req: Request, res: Response) => {
   }
 });
 
-ordersRouter.post('/:id/items', async (req: Request, res: Response) => {
+ordersRouter.post('/:id/items', async (req: AuthRequest, res: Response) => {
   try {
     const { type, serviceId, productId, collaboratorId, quantity } =
       req.body as {
@@ -223,7 +244,12 @@ ordersRouter.post('/:id/items', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const result = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
@@ -361,9 +387,14 @@ ordersRouter.post('/:id/items', async (req: Request, res: Response) => {
   }
 });
 
-ordersRouter.delete('/:id/items/:itemId', async (req: Request, res: Response) => {
+ordersRouter.delete('/:id/items/:itemId', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const result = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
@@ -429,9 +460,14 @@ ordersRouter.delete('/:id/items/:itemId', async (req: Request, res: Response) =>
   }
 });
 
-ordersRouter.post('/:id/close', async (req: Request, res: Response) => {
+ordersRouter.post('/:id/close', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.order.findFirst({
       where: { id: req.params.id, salonId },
@@ -464,9 +500,14 @@ ordersRouter.post('/:id/close', async (req: Request, res: Response) => {
   }
 });
 
-ordersRouter.post('/:id/pay', async (req: Request, res: Response) => {
+ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.order.findFirst({
       where: { id: req.params.id, salonId },
@@ -496,151 +537,6 @@ ordersRouter.post('/:id/pay', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error paying order', error);
     res.status(500).json({ error: 'Failed to pay order' });
-  }
-});
-
-ordersRouter.post('/appointments/:id/order/ensure', async (req: Request, res: Response) => {
-  try {
-    const salonId = await getDefaultSalonId();
-
-    const appointment = await prisma.appointment.findFirst({
-      where: { id: req.params.id, salonId },
-      include: { services: true, order: true },
-    });
-
-    if (!appointment) {
-      res.status(404).json({ error: 'Appointment not found' });
-      return;
-    }
-
-    let existingOrder = await prisma.order.findFirst({
-      where: {
-        salonId,
-        appointment: { id: appointment.id },
-      },
-      include: { items: true, appointment: true },
-    });
-
-    if (!existingOrder && appointment.orderId) {
-      existingOrder = await prisma.order.findFirst({
-        where: { id: appointment.orderId, salonId },
-        include: { items: true, appointment: true },
-      });
-    }
-
-    if (!existingOrder) {
-      existingOrder = await prisma.order.findFirst({
-        where: {
-          salonId,
-          clientId: appointment.clientId,
-          status: 'open',
-          appointment: null,
-        },
-        include: { items: true, appointment: true },
-      });
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      let order = existingOrder;
-
-      if (!order) {
-        order = await tx.order.create({
-          data: {
-            salonId,
-            clientId: appointment.clientId,
-            status: 'open',
-            finalValue: 0,
-          },
-          include: { items: true, appointment: true },
-        });
-      } else {
-        order = await tx.order.findFirst({
-          where: { id: order.id },
-          include: { items: true, appointment: true },
-        });
-      }
-
-      if (!order) {
-        throw new Error('ORDER_CREATION_FAILED');
-      }
-
-      if (!appointment.orderId || appointment.orderId !== order.id) {
-        await tx.appointment.update({
-          where: { id: appointment.id },
-          data: { orderId: order.id },
-        });
-      }
-
-      const serviceIds = (appointment.services ?? []).map((s: any) => s.serviceId);
-
-      const services = await tx.service.findMany({
-        where: { salonId, id: { in: serviceIds } },
-      });
-
-      const servicesById = new Map<string, any>();
-      for (const s of services) {
-        servicesById.set(s.id, s);
-      }
-
-      const existingItems = await tx.orderItem.findMany({
-        where: { orderId: order.id, salonId },
-      });
-
-      for (const apService of appointment.services ?? []) {
-        const serviceId = apService.serviceId;
-        const alreadyExists = existingItems.some((it) => {
-          return (
-            it.type === 'service' &&
-            it.serviceId === serviceId &&
-            it.collaboratorId === appointment.collaboratorId
-          );
-        });
-
-        if (alreadyExists) {
-          continue;
-        }
-
-        const service = servicesById.get(serviceId);
-        if (!service) {
-          continue;
-        }
-
-        await tx.orderItem.create({
-          data: {
-            orderId: order.id,
-            salonId,
-            type: 'service',
-            serviceId,
-            collaboratorId: appointment.collaboratorId,
-            quantity: 1,
-            price: Number(service.price),
-            commission: 0,
-          },
-        });
-      }
-
-      const allItems = await tx.orderItem.findMany({
-        where: { orderId: order.id, salonId },
-      });
-
-      const finalValue = allItems.reduce((sum, it) => {
-        const q = it.quantity ?? 1;
-        return sum + Number(it.price) * q;
-      }, 0);
-
-      const finalOrder = await tx.order.update({
-        where: { id: order.id },
-        data: { finalValue },
-        include: { items: true, appointment: true },
-      });
-
-      return finalOrder;
-    });
-
-    res.json(mapOrder(result));
-  } catch (error) {
-    console.error('Error ensuring order for appointment', error);
-    res.status(500).json({ error: 'Failed to ensure order for appointment' });
   }
 });
 

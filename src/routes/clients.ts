@@ -1,6 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { getDefaultSalonId } from '../salonContext';
+import { AuthRequest } from '../middleware/auth';
+import { sanitizeString, validateEmail, validatePhone, sanitizePhone } from '../utils/validation';
+import { createRateLimiter } from '../middleware/rateLimiter';
 
 function mapClient(c: any) {
   return {
@@ -17,9 +19,14 @@ function mapClient(c: any) {
 
 const clientsRouter = Router();
 
-clientsRouter.get('/', async (_req: Request, res: Response) => {
+clientsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const clients = await prisma.client.findMany({
       where: { salonId, isActive: true },
@@ -28,13 +35,18 @@ clientsRouter.get('/', async (_req: Request, res: Response) => {
 
     res.json(clients.map(mapClient));
   } catch (error) {
-    console.error('Error listing clients', error);
+    console.error('Error listing clients:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to list clients' });
   }
 });
 
-clientsRouter.post('/', async (req: Request, res: Response) => {
+clientsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
     const { name, phone, email } = req.body as {
       name?: string;
       phone?: string;
@@ -46,14 +58,36 @@ clientsRouter.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    // Validate and sanitize input
+    const sanitizedName = sanitizeString(name);
+    if (!sanitizedName || sanitizedName.length < 2) {
+      res.status(400).json({ error: 'name must be at least 2 characters long' });
+      return;
+    }
+
+    if (!validatePhone(phone)) {
+      res.status(400).json({ error: 'Invalid phone number format' });
+      return;
+    }
+    const sanitizedPhone = sanitizePhone(phone);
+
+    let sanitizedEmail: string | undefined;
+    if (email) {
+      if (!validateEmail(email)) {
+        res.status(400).json({ error: 'Invalid email format' });
+        return;
+      }
+      sanitizedEmail = sanitizeString(email);
+    }
+
+    const salonId = req.user.salonId;
 
     const client = await prisma.client.create({
       data: {
         salonId,
-        name,
-        phone,
-        email,
+        name: sanitizedName,
+        phone: sanitizedPhone,
+        email: sanitizedEmail,
       },
     });
 
@@ -63,14 +97,19 @@ clientsRouter.post('/', async (req: Request, res: Response) => {
       res.status(409).json({ error: 'Client with this phone or email already exists' });
       return;
     }
-    console.error('Error creating client', error);
+    console.error('Error creating client:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to create client' });
   }
 });
 
-clientsRouter.get('/:id', async (req: Request, res: Response) => {
+clientsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
     const client = await prisma.client.findFirst({
       where: { id: req.params.id, salonId, isActive: true },
     });
@@ -82,13 +121,18 @@ clientsRouter.get('/:id', async (req: Request, res: Response) => {
 
     res.json(mapClient(client));
   } catch (error) {
-    console.error('Error fetching client', error);
+    console.error('Error fetching client:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to fetch client' });
   }
 });
 
-clientsRouter.patch('/:id', async (req: Request, res: Response) => {
+clientsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
     const { name, phone, email, lastVisit } = req.body as {
       name?: string;
       phone?: string;
@@ -96,7 +140,7 @@ clientsRouter.patch('/:id', async (req: Request, res: Response) => {
       lastVisit?: string | null;
     };
 
-    const salonId = await getDefaultSalonId();
+    const salonId = req.user.salonId;
 
     const existing = await prisma.client.findFirst({
       where: { id: req.params.id, salonId, isActive: true },
@@ -108,9 +152,28 @@ clientsRouter.patch('/:id', async (req: Request, res: Response) => {
     }
 
     const data: any = {};
-    if (name !== undefined) data.name = name;
-    if (phone !== undefined) data.phone = phone;
-    if (email !== undefined) data.email = email;
+    if (name !== undefined) {
+      const sanitizedName = sanitizeString(name);
+      if (sanitizedName.length < 2) {
+        res.status(400).json({ error: 'name must be at least 2 characters long' });
+        return;
+      }
+      data.name = sanitizedName;
+    }
+    if (phone !== undefined) {
+      if (!validatePhone(phone)) {
+        res.status(400).json({ error: 'Invalid phone number format' });
+        return;
+      }
+      data.phone = sanitizePhone(phone);
+    }
+    if (email !== undefined) {
+      if (email && !validateEmail(email)) {
+        res.status(400).json({ error: 'Invalid email format' });
+        return;
+      }
+      data.email = email ? sanitizeString(email) : null;
+    }
     if (lastVisit !== undefined) {
       data.lastVisit = lastVisit ? new Date(lastVisit) : null;
     }
@@ -126,14 +189,19 @@ clientsRouter.patch('/:id', async (req: Request, res: Response) => {
       res.status(409).json({ error: 'Client with this phone or email already exists' });
       return;
     }
-    console.error('Error updating client', error);
+    console.error('Error updating client:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to update client' });
   }
 });
 
-clientsRouter.delete('/:id', async (req: Request, res: Response) => {
+clientsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.client.findFirst({
       where: { id: req.params.id, salonId },
@@ -151,7 +219,7 @@ clientsRouter.delete('/:id', async (req: Request, res: Response) => {
 
     res.status(204).send();
   } catch (error) {
-    console.error('Error deleting client', error);
+    console.error('Error deleting client:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to delete client' });
   }
 });

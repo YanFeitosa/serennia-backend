@@ -1,7 +1,9 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { getDefaultSalonId } from '../salonContext';
+import { AuthRequest } from '../middleware/auth';
 import { CategoryType } from '../types/enums';
+import { sanitizeString } from '../utils/validation';
+import { createRateLimiter } from '../middleware/rateLimiter';
 
 function mapCategory(c: any) {
   return {
@@ -16,9 +18,14 @@ function mapCategory(c: any) {
 
 const categoriesRouter = Router();
 
-categoriesRouter.get('/', async (req: Request, res: Response) => {
+categoriesRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
     const type = req.query.type as CategoryType | undefined;
 
     if (!type || (type !== 'service' && type !== 'product')) {
@@ -40,7 +47,7 @@ categoriesRouter.get('/', async (req: Request, res: Response) => {
   }
 });
 
-categoriesRouter.post('/', async (req: Request, res: Response) => {
+categoriesRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const { type, name } = req.body as {
       type?: CategoryType;
@@ -57,13 +64,23 @@ categoriesRouter.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
+    const sanitizedName = sanitizeString(name);
+    if (sanitizedName.length < 2) {
+      res.status(400).json({ error: 'name must be at least 2 characters long' });
+      return;
+    }
 
     const category = await prisma.category.create({
       data: {
         salonId,
         type,
-        name,
+        name: sanitizedName,
       },
     });
 
@@ -80,9 +97,14 @@ categoriesRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-categoriesRouter.delete('/:id', async (req: Request, res: Response) => {
+categoriesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.category.findFirst({
       where: { id: req.params.id, salonId },

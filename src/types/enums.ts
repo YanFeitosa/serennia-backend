@@ -15,3 +15,6 @@ export type PaymentStatus = "pending" | "confirmed" | "failed";
 export type NotificationType = "info" | "warning" | "error";
 export type AuditAction = "INSERT" | "UPDATE" | "DELETE";
 export type CategoryType = "service" | "product";
+export type MessageChannel = "whatsapp" | "sms" | "email";
+export type MessageStatus = "pending" | "sent" | "failed";
+export type ExpenseType = "FIXED" | "VARIABLE";

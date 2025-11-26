@@ -1,7 +1,12 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { getDefaultSalonId } from '../salonContext';
+import { AuthRequest } from '../middleware/auth';
+import { isAdminLike } from '../middleware/supabaseAuth';
 import { UserRole, CollaboratorStatus } from '../types/enums';
+import { sanitizeString, validateEmail, validatePhone, sanitizePhone } from '../utils/validation';
+import { createRateLimiter } from '../middleware/rateLimiter';
+import { supabaseAdmin } from '../lib/supabase';
+import { sendWelcomeEmail } from '../lib/email';
 
 function mapCollaborator(c: any) {
   return {
@@ -13,6 +18,8 @@ function mapCollaborator(c: any) {
     status: c.status,
     phone: c.phone ?? undefined,
     email: c.email ?? undefined,
+    cpf: c.cpf ?? undefined,
+    avatarUrl: c.avatarUrl ?? undefined,
     commissionRate: Number(c.commissionRate),
     serviceCategories: c.serviceCategories ?? [],
     createdAt: c.createdAt.toISOString(),
@@ -20,11 +27,55 @@ function mapCollaborator(c: any) {
   };
 }
 
+// CPF validation helper
+function validateCPF(cpf: string): boolean {
+  // Remove non-digits
+  const cleaned = cpf.replace(/\D/g, '');
+  
+  // Must have 11 digits
+  if (cleaned.length !== 11) return false;
+  
+  // Check for known invalid patterns
+  if (/^(\d)\1{10}$/.test(cleaned)) return false;
+  
+  // Validate check digits
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cleaned.charAt(i)) * (10 - i);
+  }
+  let remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  if (remainder !== parseInt(cleaned.charAt(9))) return false;
+  
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(cleaned.charAt(i)) * (11 - i);
+  }
+  remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  if (remainder !== parseInt(cleaned.charAt(10))) return false;
+  
+  return true;
+}
+
+// Generate default password: firstName (lowercase) + last 4 digits of CPF
+function generateDefaultPassword(name: string, cpf: string): string {
+  const firstName = name.split(' ')[0].toLowerCase();
+  const cleanedCPF = cpf.replace(/\D/g, '');
+  const lastFourDigits = cleanedCPF.slice(-4);
+  return `${firstName}${lastFourDigits}`;
+}
+
 const collaboratorsRouter = Router();
 
-collaboratorsRouter.get('/', async (_req: Request, res: Response) => {
+collaboratorsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const collaborators = await prisma.collaborator.findMany({
       where: { salonId },
@@ -38,17 +89,24 @@ collaboratorsRouter.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-collaboratorsRouter.post('/', async (req: Request, res: Response) => {
+collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
-    const { name, role, status, phone, email, commissionRate, serviceCategories } =
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { name, role, status, phone, email, cpf, commissionRate, serviceCategories, avatarUrl } =
       req.body as {
         name?: string;
         role?: UserRole;
         status?: CollaboratorStatus;
         phone?: string;
         email?: string;
+        cpf?: string;
         commissionRate?: number;
         serviceCategories?: string[];
+        avatarUrl?: string;
       };
 
     if (!name || !role) {
@@ -56,16 +114,149 @@ collaboratorsRouter.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const salonId = await getDefaultSalonId();
+    // CPF is required
+    if (!cpf) {
+      res.status(400).json({ error: 'cpf is required' });
+      return;
+    }
+
+    // Validate CPF format
+    if (!validateCPF(cpf)) {
+      res.status(400).json({ error: 'Invalid CPF format' });
+      return;
+    }
+
+    // Validate and sanitize input
+    const sanitizedName = sanitizeString(name);
+    if (!sanitizedName || sanitizedName.length < 2) {
+      res.status(400).json({ error: 'name must be at least 2 characters long' });
+      return;
+    }
+
+    if (phone && !validatePhone(phone)) {
+      res.status(400).json({ error: 'Invalid phone number format' });
+      return;
+    }
+
+    if (email && !validateEmail(email)) {
+      res.status(400).json({ error: 'Invalid email format' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
+
+    // Get salon name for email
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
+      select: { name: true },
+    });
+    const salonName = salon?.name || 'o salão';
+
+    let userId: string | null = null;
+
+    // Clean CPF for storage
+    const cleanedCPF = cpf.replace(/\D/g, '');
+
+    // If email is provided, create user in Supabase and User table
+    if (email) {
+      try {
+        // Generate default password: firstName (lowercase) + last 4 digits of CPF
+        const defaultPassword = generateDefaultPassword(sanitizedName, cleanedCPF);
+
+        // Create user in Supabase Auth
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email: sanitizeString(email).toLowerCase(),
+          password: defaultPassword,
+          email_confirm: false, // Require email confirmation
+          user_metadata: {
+            salonId: salonId,
+            tenantRole: role,
+            name: sanitizedName,
+            phone: phone ? sanitizePhone(phone) : null,
+            role: role, // Legacy field
+          },
+        });
+
+        if (authError) {
+          console.error('Error creating user in Supabase:', authError);
+          // Continue without creating user if Supabase fails
+        } else if (authData?.user) {
+          userId = authData.user.id;
+
+          // Create User record in database
+          try {
+            await prisma.user.create({
+              data: {
+                id: userId,
+                salonId,
+                name: sanitizedName,
+                email: sanitizeString(email).toLowerCase(),
+                phone: phone ? sanitizePhone(phone) : null,
+                tenantRole: role,
+                passwordHash: null, // Not used with Supabase
+              },
+            });
+
+            // Send welcome email with password reset link
+            try {
+              // Generate password reset link
+              const { data: resetData, error: resetError } = await supabaseAdmin.auth.admin.generateLink({
+                type: 'recovery',
+                email: sanitizeString(email).toLowerCase(),
+              });
+
+              if (!resetError && resetData?.properties?.action_link) {
+                await sendWelcomeEmail(
+                  sanitizeString(email).toLowerCase(),
+                  sanitizedName,
+                  salonName,
+                  resetData.properties.action_link
+                );
+              } else {
+                // Fallback: send email with default password
+                await sendWelcomeEmail(
+                  sanitizeString(email).toLowerCase(),
+                  sanitizedName,
+                  salonName,
+                  undefined,
+                  defaultPassword
+                );
+              }
+            } catch (emailError) {
+              console.error('Error sending welcome email:', emailError);
+              // Don't fail collaborator creation if email fails
+            }
+          } catch (userError: any) {
+            console.error('Error creating User record:', userError);
+            // If User creation fails, try to clean up Supabase user
+            if (userId) {
+              try {
+                await supabaseAdmin.auth.admin.deleteUser(userId);
+              } catch (cleanupError) {
+                console.error('Error cleaning up Supabase user:', cleanupError);
+              }
+            }
+            // Continue without user if creation fails
+            userId = null;
+          }
+        }
+      } catch (error) {
+        console.error('Error creating user for collaborator:', error);
+        // Continue without user if there's an error
+      }
+    }
 
     const collaborator = await prisma.collaborator.create({
       data: {
         salonId,
-        name,
+        userId: userId,
+        name: sanitizedName,
         role,
         status: status ?? 'active',
-        phone,
-        email,
+        phone: phone ? sanitizePhone(phone) : null,
+        email: email ? sanitizeString(email) : null,
+        cpf: cleanedCPF,
+        avatarUrl: avatarUrl ? sanitizeString(avatarUrl) : null,
         commissionRate: commissionRate ?? 0,
         serviceCategories: serviceCategories ?? [],
       },
@@ -84,9 +275,14 @@ collaboratorsRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-collaboratorsRouter.get('/:id', async (req: Request, res: Response) => {
+collaboratorsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
     const collaborator = await prisma.collaborator.findFirst({
       where: { id: req.params.id, salonId },
     });
@@ -103,20 +299,27 @@ collaboratorsRouter.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-collaboratorsRouter.patch('/:id', async (req: Request, res: Response) => {
+collaboratorsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, role, status, phone, email, commissionRate, serviceCategories } =
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { name, role, status, phone, email, cpf, avatarUrl, commissionRate, serviceCategories } =
       req.body as {
         name?: string;
         role?: UserRole;
         status?: CollaboratorStatus;
         phone?: string;
         email?: string;
+        cpf?: string;
+        avatarUrl?: string;
         commissionRate?: number;
         serviceCategories?: string[];
       };
 
-    const salonId = await getDefaultSalonId();
+    const salonId = req.user.salonId;
 
     const existing = await prisma.collaborator.findFirst({
       where: { id: req.params.id, salonId },
@@ -127,13 +330,57 @@ collaboratorsRouter.patch('/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    // If editing a professional (role === 'professional'), check permission
+    // Only tenant_admin, super_admin (admin-like) or manager can edit professional profiles
+    const canEdit = isAdminLike(req.user) || req.user?.tenantRole === 'manager';
+    if (existing.role === 'professional' && !canEdit) {
+      // Check if user has permission to edit professional profiles
+      res.status(403).json({ error: 'Only administrators and managers can edit professional profiles' });
+      return;
+    }
+
     const data: any = {};
-    if (name !== undefined) data.name = name;
+    if (name !== undefined) {
+      const sanitizedName = sanitizeString(name);
+      if (sanitizedName.length < 2) {
+        res.status(400).json({ error: 'name must be at least 2 characters long' });
+        return;
+      }
+      data.name = sanitizedName;
+    }
     if (role !== undefined) data.role = role;
     if (status !== undefined) data.status = status;
-    if (phone !== undefined) data.phone = phone;
-    if (email !== undefined) data.email = email;
-    if (commissionRate !== undefined) data.commissionRate = commissionRate;
+    if (phone !== undefined) {
+      if (phone && !validatePhone(phone)) {
+        res.status(400).json({ error: 'Invalid phone number format' });
+        return;
+      }
+      data.phone = phone ? sanitizePhone(phone) : null;
+    }
+    if (email !== undefined) {
+      if (email && !validateEmail(email)) {
+        res.status(400).json({ error: 'Invalid email format' });
+        return;
+      }
+      data.email = email ? sanitizeString(email) : null;
+    }
+    if (cpf !== undefined) {
+      if (cpf && !validateCPF(cpf)) {
+        res.status(400).json({ error: 'Invalid CPF format' });
+        return;
+      }
+      data.cpf = cpf ? cpf.replace(/\D/g, '') : null;
+    }
+    if (avatarUrl !== undefined) {
+      data.avatarUrl = avatarUrl ? sanitizeString(avatarUrl) : null;
+    }
+    if (commissionRate !== undefined) {
+      if (commissionRate < 0 || commissionRate > 1) {
+        res.status(400).json({ error: 'commissionRate must be between 0 and 1' });
+        return;
+      }
+      data.commissionRate = commissionRate;
+    }
     if (serviceCategories !== undefined) data.serviceCategories = serviceCategories;
 
     const updated = await prisma.collaborator.update({
@@ -154,9 +401,14 @@ collaboratorsRouter.patch('/:id', async (req: Request, res: Response) => {
   }
 });
 
-collaboratorsRouter.delete('/:id', async (req: Request, res: Response) => {
+collaboratorsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
 
     const existing = await prisma.collaborator.findFirst({
       where: { id: req.params.id, salonId },

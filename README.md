@@ -1,6 +1,6 @@
-# Serenna Backend
+# Serennia Backend
 
-API REST para o sistema de gestão de salões de beleza Serenna.
+API REST para o sistema de gestão de salões de beleza Serennia.
 
 ## 🛠️ Tecnologias
 
@@ -23,7 +23,7 @@ API REST para o sistema de gestão de salões de beleza Serenna.
 1. **Clone o repositório e entre na pasta:**
 
 ```bash
-cd serenna-backend
+cd serennia-backend
 ```
 
 2. **Instale as dependências:**
@@ -53,7 +53,7 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=seu-email@gmail.com
 SMTP_PASS=sua-senha-de-app
-EMAIL_FROM=Serenna <noreply@serenna.app>
+EMAIL_FROM=Serennia <noreply@serennia.app>
 ```
 
 4. **Execute as migrações do banco de dados:**

@@ -83,7 +83,7 @@ export async function sendWelcomeEmail(
     <body>
       <div class="container">
         <div class="header">
-          <h1>Bem-vindo ao Serenna!</h1>
+          <h1>Bem-vindo ao Serennia!</h1>
         </div>
         <div class="content">
           <p>Olá ${name},</p>
@@ -95,7 +95,7 @@ export async function sendWelcomeEmail(
             </a>
           </p>
           <p>Se você tiver alguma dúvida, não hesite em nos contatar.</p>
-          <p>Atenciosamente,<br>Equipe Serenna</p>
+          <p>Atenciosamente,<br>Equipe Serennia</p>
         </div>
         <div class="footer">
           <p>Este é um email automático, por favor não responda.</p>
@@ -106,7 +106,7 @@ export async function sendWelcomeEmail(
   `;
 
   const text = `
-    Bem-vindo ao Serenna!
+    Bem-vindo ao Serennia!
     
     Olá ${name},
     
@@ -116,12 +116,12 @@ export async function sendWelcomeEmail(
     Acesse: ${buttonLink}
     
     Atenciosamente,
-    Equipe Serenna
+    Equipe Serennia
   `;
 
   await sendEmail({
     to: email,
-    subject: 'Bem-vindo ao Serenna!',
+    subject: 'Bem-vindo ao Serennia!',
     html,
     text,
   });

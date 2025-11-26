@@ -31,7 +31,6 @@ enum UserRole {
   manager
   receptionist
   professional
-  accountant
 }
 
 enum CollaboratorStatus {
@@ -113,11 +112,6 @@ enum MessageStatus {
   failed
 }
 
-enum ExpenseType {
-  FIXED
-  VARIABLE
-}
-
 /// MODELS
 
 model Salon {
@@ -129,7 +123,6 @@ model Salon {
   fixedCostsMonthly   Decimal?
   variableCostRate     Decimal?
   rolePermissions      Json?
-  theme                Json?
   tenantAdminId String?     @unique
   status        SalonStatus @default(pending)
   createdAt     DateTime    @default(now())
@@ -151,7 +144,6 @@ model Salon {
   orderItems    OrderItem[]
   messageTemplates MessageTemplate[]
   messageLogs   MessageLog[]
-  expenses      Expense[]
 }
 
 model User {
@@ -208,8 +200,6 @@ model Collaborator {
   status            CollaboratorStatus
   phone             String?
   email             String?
-  cpf               String?
-  avatarUrl         String?
   commissionRate    Decimal
   serviceCategories String[]
   createdAt         DateTime           @default(now())
@@ -224,7 +214,6 @@ model Collaborator {
 
   @@unique([salonId, phone])
   @@unique([salonId, email])
-  @@unique([salonId, cpf])
 }
 
 model Category {
@@ -454,18 +443,4 @@ model MessageLog {
   client       Client           @relation(fields: [clientId], references: [id])
 
   createdAt    DateTime         @default(now())
-}
-
-model Expense {
-  id        String      @id @default(uuid())
-  salonId   String
-  name      String
-  amount    Decimal
-  type      ExpenseType
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-
-  salon Salon @relation(fields: [salonId], references: [id])
-
-  @@unique([salonId, name])
 }

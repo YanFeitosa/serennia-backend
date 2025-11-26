@@ -11,25 +11,25 @@ async function createInitialUsers() {
 
     const users = [
       {
-        email: "admin@serenna.com",
+        email: "admin@serennia.com",
         name: "Ana (Admin)",
         role: "admin" as const,
         passwordHash: hashedPassword,
       },
       {
-        email: "manager@serenna.com",
+        email: "manager@serennia.com",
         name: "Beatriz (Gerente)",
         role: "manager" as const,
         passwordHash: hashedPassword,
       },
       {
-        email: "reception@serenna.com",
+        email: "reception@serennia.com",
         name: "Carla (Recepcionista)",
         role: "receptionist" as const,
         passwordHash: hashedPassword,
       },
       {
-        email: "diana@serenna.com",
+        email: "diana@serennia.com",
         name: "Diana (Profissional)",
         role: "professional" as const,
         passwordHash: hashedPassword,

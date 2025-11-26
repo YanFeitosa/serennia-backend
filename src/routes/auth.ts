@@ -272,5 +272,51 @@ authRouter.patch("/password", apiRateLimiter, supabaseAuthMiddleware, async (req
   }
 });
 
+// POST /auth/forgot-password - Request password reset
+authRouter.post("/forgot-password", apiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body as { email?: string };
+
+    if (!email) {
+      res.status(400).json({ error: "Email é obrigatório" });
+      return;
+    }
+
+    if (!validateEmail(email)) {
+      res.status(400).json({ error: "Formato de email inválido" });
+      return;
+    }
+
+    const sanitizedEmail = sanitizeString(email).toLowerCase();
+
+    // Check if user exists in our database
+    const user = await prisma.user.findFirst({
+      where: { email: sanitizedEmail },
+      select: { id: true, email: true },
+    });
+
+    // Always return success to prevent email enumeration
+    if (!user) {
+      res.json({ success: true, message: "Se o email existir, você receberá um link de recuperação" });
+      return;
+    }
+
+    // Request password reset via Supabase
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(sanitizedEmail, {
+      redirectTo: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/login?reset=true`,
+    });
+
+    if (error) {
+      console.error("Error requesting password reset:", error);
+      // Still return success to prevent email enumeration
+    }
+
+    res.json({ success: true, message: "Se o email existir, você receberá um link de recuperação" });
+  } catch (error) {
+    console.error("Error in /forgot-password", error);
+    res.status(500).json({ error: "Erro ao solicitar recuperação de senha" });
+  }
+});
+
 export { authRouter };
 

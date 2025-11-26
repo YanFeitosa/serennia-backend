@@ -119,6 +119,99 @@ async function runMigration() {
         console.log(`   ❌ Error: ${error.message}`);
       }
     }
+
+    // 8. Add WhatsApp integration columns to Salon
+    console.log('\n⏳ Adding WhatsApp integration columns to Salon...');
+    const whatsappColumns = [
+      { name: 'whatsappApiUrl', type: 'TEXT' },
+      { name: 'whatsappApiKey', type: 'TEXT' },
+      { name: 'whatsappInstanceId', type: 'TEXT' },
+      { name: 'whatsappPhone', type: 'TEXT' },
+      { name: 'whatsappConnected', type: 'BOOLEAN DEFAULT false' },
+    ];
+    for (const col of whatsappColumns) {
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Salon" ADD COLUMN "${col.name}" ${col.type};`);
+        console.log(`   ✅ Added ${col.name}`);
+      } catch (error: any) {
+        if (error.code === '42701') {
+          console.log(`   ⚠️ ${col.name} already exists`);
+        } else {
+          console.log(`   ❌ Error adding ${col.name}: ${error.message}`);
+        }
+      }
+    }
+
+    // 9. Add Payment integration columns to Salon
+    console.log('\n⏳ Adding Payment integration columns to Salon...');
+    const paymentColumns = [
+      { name: 'paymentProvider', type: 'TEXT' },
+      { name: 'mpAccessToken', type: 'TEXT' },
+      { name: 'mpPublicKey', type: 'TEXT' },
+      { name: 'stripeSecretKey', type: 'TEXT' },
+      { name: 'stripePublishableKey', type: 'TEXT' },
+    ];
+    for (const col of paymentColumns) {
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Salon" ADD COLUMN "${col.name}" ${col.type};`);
+        console.log(`   ✅ Added ${col.name}`);
+      } catch (error: any) {
+        if (error.code === '42701') {
+          console.log(`   ⚠️ ${col.name} already exists`);
+        } else {
+          console.log(`   ❌ Error adding ${col.name}: ${error.message}`);
+        }
+      }
+    }
+
+    // 10. Create CommissionPayment table
+    console.log('\n⏳ Creating CommissionPayment table...');
+    try {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE "CommissionPayment" (
+          "id" TEXT NOT NULL,
+          "salonId" TEXT NOT NULL,
+          "collaboratorId" TEXT NOT NULL,
+          "amount" DECIMAL(65,30) NOT NULL,
+          "periodStart" TIMESTAMP(3) NOT NULL,
+          "periodEnd" TIMESTAMP(3) NOT NULL,
+          "paidAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "notes" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "CommissionPayment_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      console.log('   ✅ Success');
+    } catch (error: any) {
+      if (error.code === '42P07' || error.message?.includes('already exists')) {
+        console.log('   ⚠️ Table already exists');
+      } else {
+        console.log(`   ❌ Error: ${error.message}`);
+      }
+    }
+
+    // 11. Create indexes for CommissionPayment
+    console.log('\n⏳ Creating indexes for CommissionPayment...');
+    try {
+      await prisma.$executeRawUnsafe(`CREATE INDEX "CommissionPayment_salonId_idx" ON "CommissionPayment"("salonId");`);
+      console.log('   ✅ Created salonId index');
+    } catch (error: any) {
+      if (error.message?.includes('already exists')) {
+        console.log('   ⚠️ salonId index already exists');
+      } else {
+        console.log(`   ❌ Error: ${error.message}`);
+      }
+    }
+    try {
+      await prisma.$executeRawUnsafe(`CREATE INDEX "CommissionPayment_collaboratorId_idx" ON "CommissionPayment"("collaboratorId");`);
+      console.log('   ✅ Created collaboratorId index');
+    } catch (error: any) {
+      if (error.message?.includes('already exists')) {
+        console.log('   ⚠️ collaboratorId index already exists');
+      } else {
+        console.log(`   ❌ Error: ${error.message}`);
+      }
+    }
     
     console.log('\n✅ Migration completed!');
     

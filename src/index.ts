@@ -19,6 +19,8 @@ import { auditRouter } from "./routes/audit";
 import { messagesRouter } from "./routes/messages";
 import { totemRouter } from "./routes/totem";
 import { expensesRouter } from "./routes/expenses";
+import { paymentsRouter } from "./routes/payments";
+import { commissionsRouter } from "./routes/commissions";
 import { authMiddleware, AuthRequest } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
 import { apiRateLimiter, createRateLimiter } from "./middleware/rateLimiter";
@@ -90,6 +92,8 @@ app.use("/audit-logs", apiRateLimiter, auditRouter);
 app.use("/messages", apiRateLimiter, authMiddleware, messagesRouter);
 app.use("/totem", totemRouter);
 app.use("/expenses", apiRateLimiter, authMiddleware, expensesRouter);
+app.use("/payments", paymentsRouter);
+app.use("/commissions", apiRateLimiter, authMiddleware, commissionsRouter);
 
 app.get("/health", async (_req: Request, res: Response) => {
   try {
@@ -138,6 +142,18 @@ app.patch("/salon", apiRateLimiter, authMiddleware, async (req: AuthRequest, res
       variableCostRate,
       rolePermissions,
       theme,
+      // WhatsApp Integration
+      whatsappApiUrl,
+      whatsappApiKey,
+      whatsappInstanceId,
+      whatsappPhone,
+      whatsappConnected,
+      // Payment Integration
+      paymentProvider,
+      mpAccessToken,
+      mpPublicKey,
+      stripeSecretKey,
+      stripePublishableKey,
     } = req.body as {
       name?: string;
       defaultCommissionRate?: number;
@@ -146,6 +162,18 @@ app.patch("/salon", apiRateLimiter, authMiddleware, async (req: AuthRequest, res
       variableCostRate?: number;
       rolePermissions?: any;
       theme?: any;
+      // WhatsApp Integration
+      whatsappApiUrl?: string | null;
+      whatsappApiKey?: string | null;
+      whatsappInstanceId?: string | null;
+      whatsappPhone?: string | null;
+      whatsappConnected?: boolean;
+      // Payment Integration
+      paymentProvider?: string | null;
+      mpAccessToken?: string | null;
+      mpPublicKey?: string | null;
+      stripeSecretKey?: string | null;
+      stripePublishableKey?: string | null;
     };
 
     const salonId = req.user.salonId;
@@ -217,6 +245,26 @@ app.patch("/salon", apiRateLimiter, authMiddleware, async (req: AuthRequest, res
       data.theme = theme;
     }
 
+    // WhatsApp Integration fields
+    if (whatsappApiUrl !== undefined) data.whatsappApiUrl = whatsappApiUrl;
+    if (whatsappApiKey !== undefined) data.whatsappApiKey = whatsappApiKey;
+    if (whatsappInstanceId !== undefined) data.whatsappInstanceId = whatsappInstanceId;
+    if (whatsappPhone !== undefined) data.whatsappPhone = whatsappPhone;
+    if (whatsappConnected !== undefined) data.whatsappConnected = whatsappConnected;
+
+    // Payment Integration fields
+    if (paymentProvider !== undefined) {
+      if (paymentProvider !== null && paymentProvider !== 'mercadopago' && paymentProvider !== 'stripe') {
+        res.status(400).json({ error: "paymentProvider must be 'mercadopago', 'stripe', or null" });
+        return;
+      }
+      data.paymentProvider = paymentProvider;
+    }
+    if (mpAccessToken !== undefined) data.mpAccessToken = mpAccessToken;
+    if (mpPublicKey !== undefined) data.mpPublicKey = mpPublicKey;
+    if (stripeSecretKey !== undefined) data.stripeSecretKey = stripeSecretKey;
+    if (stripePublishableKey !== undefined) data.stripePublishableKey = stripePublishableKey;
+
     const updated = await prisma.salon.update({
       where: { id: salonId },
       data,
@@ -226,6 +274,152 @@ app.patch("/salon", apiRateLimiter, authMiddleware, async (req: AuthRequest, res
   } catch (error) {
     console.error("Error updating salon settings", error);
     res.status(500).json({ error: "Failed to update salon settings" });
+  }
+});
+
+// Test WhatsApp Connection
+app.post("/salon/test-whatsapp", apiRateLimiter, authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
+      select: {
+        whatsappApiUrl: true,
+        whatsappApiKey: true,
+        whatsappInstanceId: true,
+      },
+    });
+
+    if (!salon) {
+      res.status(404).json({ success: false, error: 'Salão não encontrado' });
+      return;
+    }
+
+    if (!salon.whatsappApiUrl || !salon.whatsappApiKey || !salon.whatsappInstanceId) {
+      res.status(400).json({ success: false, error: 'Configurações do WhatsApp incompletas' });
+      return;
+    }
+
+    // Test connection to Evolution API
+    try {
+      const response = await fetch(`${salon.whatsappApiUrl}/instance/connectionState/${salon.whatsappInstanceId}`, {
+        method: 'GET',
+        headers: {
+          'apikey': salon.whatsappApiKey,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        res.json({ success: false, error: errorData.message || 'Falha ao conectar com a API' });
+        return;
+      }
+
+      const data = await response.json();
+      const isConnected = data.state === 'open' || data.instance?.state === 'open';
+
+      // Update connection status
+      await prisma.salon.update({
+        where: { id: salonId },
+        data: { whatsappConnected: isConnected },
+      });
+
+      res.json({ success: isConnected, error: isConnected ? undefined : 'WhatsApp não está conectado' });
+    } catch (fetchError: any) {
+      console.error('Error testing WhatsApp connection:', fetchError);
+      res.json({ success: false, error: 'Não foi possível conectar à API do WhatsApp' });
+    }
+  } catch (error) {
+    console.error("Error testing WhatsApp connection", error);
+    res.status(500).json({ success: false, error: "Erro ao testar conexão" });
+  }
+});
+
+// Test Payment Connection
+app.post("/salon/test-payment", apiRateLimiter, authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
+      select: {
+        paymentProvider: true,
+        mpAccessToken: true,
+        stripeSecretKey: true,
+      },
+    });
+
+    if (!salon) {
+      res.status(404).json({ success: false, error: 'Salão não encontrado' });
+      return;
+    }
+
+    if (!salon.paymentProvider) {
+      res.status(400).json({ success: false, error: 'Nenhum provedor de pagamento configurado' });
+      return;
+    }
+
+    if (salon.paymentProvider === 'mercadopago') {
+      if (!salon.mpAccessToken) {
+        res.json({ success: false, error: 'Access Token do Mercado Pago não configurado' });
+        return;
+      }
+
+      // Test Mercado Pago connection
+      try {
+        const response = await fetch('https://api.mercadopago.com/users/me', {
+          headers: {
+            'Authorization': `Bearer ${salon.mpAccessToken}`,
+          },
+        });
+
+        if (!response.ok) {
+          res.json({ success: false, error: 'Access Token inválido' });
+          return;
+        }
+
+        res.json({ success: true });
+      } catch (fetchError) {
+        res.json({ success: false, error: 'Não foi possível conectar ao Mercado Pago' });
+      }
+    } else if (salon.paymentProvider === 'stripe') {
+      if (!salon.stripeSecretKey) {
+        res.json({ success: false, error: 'Secret Key do Stripe não configurada' });
+        return;
+      }
+
+      // Test Stripe connection
+      try {
+        const response = await fetch('https://api.stripe.com/v1/balance', {
+          headers: {
+            'Authorization': `Bearer ${salon.stripeSecretKey}`,
+          },
+        });
+
+        if (!response.ok) {
+          res.json({ success: false, error: 'Secret Key inválida' });
+          return;
+        }
+
+        res.json({ success: true });
+      } catch (fetchError) {
+        res.json({ success: false, error: 'Não foi possível conectar ao Stripe' });
+      }
+    } else {
+      res.json({ success: false, error: 'Provedor de pagamento não suportado' });
+    }
+  } catch (error) {
+    console.error("Error testing payment connection", error);
+    res.status(500).json({ success: false, error: "Erro ao testar conexão" });
   }
 });
 

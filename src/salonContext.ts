@@ -74,5 +74,17 @@ export function mapSalonSettings(s: any) {
       s.variableCostRate != null ? Number(s.variableCostRate) : null,
     rolePermissions: s.rolePermissions ?? DEFAULT_ROLE_PERMISSIONS,
     theme: s.theme ?? null,
+    // WhatsApp Integration
+    whatsappApiUrl: s.whatsappApiUrl ?? null,
+    whatsappApiKey: s.whatsappApiKey ?? null,
+    whatsappInstanceId: s.whatsappInstanceId ?? null,
+    whatsappPhone: s.whatsappPhone ?? null,
+    whatsappConnected: s.whatsappConnected ?? false,
+    // Payment Integration
+    paymentProvider: s.paymentProvider ?? null,
+    mpAccessToken: s.mpAccessToken ?? null,
+    mpPublicKey: s.mpPublicKey ?? null,
+    stripeSecretKey: s.stripeSecretKey ?? null,
+    stripePublishableKey: s.stripePublishableKey ?? null,
   };
 }

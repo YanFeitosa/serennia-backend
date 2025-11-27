@@ -109,11 +109,18 @@ export const supabaseAuthMiddleware = async (
     const platformRole = user.user_metadata?.platformRole as 'super_admin' | 'tenant_admin' | null;
     const role = user.user_metadata?.role;
 
+    // Debug log for super admin context switching
+    const contextSalonId = req.headers['x-salon-id'] as string;
+    console.log('[Auth Debug]', {
+      email: user.email,
+      platformRole,
+      metadataSalonId: salonId,
+      contextSalonId,
+      hasContextHeader: !!contextSalonId,
+    });
+
     // Find user in our database
     let dbUser;
-
-    // Check for x-salon-id header for context switching (Super Admin only)
-    const contextSalonId = req.headers['x-salon-id'] as string;
 
     if (platformRole === 'super_admin') {
       // SuperAdmin doesn't need salonId by default, but can impersonate/context switch

@@ -179,11 +179,15 @@ authRouter.get("/me", supabaseAuthMiddleware, async (req: SupabaseAuthRequest, r
       return;
     }
 
+    // For super_admin, use the context salonId (from header) if available
+    // Otherwise use the user's own salonId
+    const effectiveSalonId = req.user.salonId || user.salonId;
+
     // Fetch salon name if salonId is present
     let salonName = undefined;
-    if (user.salonId) {
+    if (effectiveSalonId) {
       const salon = await prisma.salon.findUnique({
-        where: { id: user.salonId },
+        where: { id: effectiveSalonId },
         select: { name: true }
       });
       if (salon) {
@@ -193,7 +197,7 @@ authRouter.get("/me", supabaseAuthMiddleware, async (req: SupabaseAuthRequest, r
 
     res.json({
       id: user.id,
-      salonId: user.salonId,
+      salonId: effectiveSalonId,
       name: user.name,
       email: user.email,
       platformRole: user.platformRole,

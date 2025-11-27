@@ -83,6 +83,26 @@ clientsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Respons
 
     const salonId = req.user.salonId;
 
+    // Check if phone already exists in salon
+    const existingByPhone = await prisma.client.findFirst({
+      where: { salonId, phone: sanitizedPhone, deletedAt: null },
+    });
+    if (existingByPhone) {
+      res.status(409).json({ error: 'Já existe um cliente com este telefone' });
+      return;
+    }
+
+    // Check if email already exists in salon (if provided)
+    if (sanitizedEmail) {
+      const existingByEmail = await prisma.client.findFirst({
+        where: { salonId, email: sanitizedEmail, deletedAt: null },
+      });
+      if (existingByEmail) {
+        res.status(409).json({ error: 'Já existe um cliente com este email' });
+        return;
+      }
+    }
+
     const client = await prisma.client.create({
       data: {
         salonId,
@@ -166,14 +186,34 @@ clientsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
         res.status(400).json({ error: 'Invalid phone number format' });
         return;
       }
-      data.phone = sanitizePhone(phone);
+      const sanitizedPhone = sanitizePhone(phone);
+      // Check if phone already exists for another client in salon
+      const existingByPhone = await prisma.client.findFirst({
+        where: { salonId, phone: sanitizedPhone, deletedAt: null, id: { not: existing.id } },
+      });
+      if (existingByPhone) {
+        res.status(409).json({ error: 'Já existe um cliente com este telefone' });
+        return;
+      }
+      data.phone = sanitizedPhone;
     }
     if (email !== undefined) {
       if (email && !validateEmail(email)) {
         res.status(400).json({ error: 'Invalid email format' });
         return;
       }
-      data.email = email ? sanitizeString(email) : null;
+      const sanitizedEmail = email ? sanitizeString(email) : null;
+      // Check if email already exists for another client in salon
+      if (sanitizedEmail) {
+        const existingByEmail = await prisma.client.findFirst({
+          where: { salonId, email: sanitizedEmail, deletedAt: null, id: { not: existing.id } },
+        });
+        if (existingByEmail) {
+          res.status(409).json({ error: 'Já existe um cliente com este email' });
+          return;
+        }
+      }
+      data.email = sanitizedEmail;
     }
     if (lastVisit !== undefined) {
       data.lastVisit = lastVisit ? new Date(lastVisit) : null;

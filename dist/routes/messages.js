@@ -91,10 +91,12 @@ messagesRouter.post('/templates', async (req, res) => {
         }
         const salonId = req.user.salonId;
         const { name, channel, content, variables, isActive } = req.body;
-        if (!name || !channel || !content) {
-            res.status(400).json({ error: 'Name, channel, and content are required' });
+        if (!name || !channel) {
+            res.status(400).json({ error: 'Name and channel are required' });
             return;
         }
+        // Content can be empty initially, but we'll set a default if not provided
+        const templateContent = content || '';
         if (!['whatsapp', 'sms', 'email'].includes(channel)) {
             res.status(400).json({ error: 'Invalid channel. Must be whatsapp, sms, or email' });
             return;
@@ -104,7 +106,7 @@ messagesRouter.post('/templates', async (req, res) => {
                 salonId,
                 name,
                 channel: channel,
-                content,
+                content: templateContent,
                 variables: variables ?? null,
                 isActive: isActive ?? true,
             },

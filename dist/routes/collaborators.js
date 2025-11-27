@@ -3,8 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.collaboratorsRouter = void 0;
 const express_1 = require("express");
 const prismaClient_1 = require("../prismaClient");
+const supabaseAuth_1 = require("../middleware/supabaseAuth");
 const validation_1 = require("../utils/validation");
 const rateLimiter_1 = require("../middleware/rateLimiter");
+const supabase_1 = require("../lib/supabase");
+const email_1 = require("../lib/email");
 function mapCollaborator(c) {
     return {
         id: c.id,
@@ -15,11 +18,51 @@ function mapCollaborator(c) {
         status: c.status,
         phone: c.phone ?? undefined,
         email: c.email ?? undefined,
+        cpf: c.cpf ?? undefined,
+        avatarUrl: c.avatarUrl ?? undefined,
         commissionRate: Number(c.commissionRate),
         serviceCategories: c.serviceCategories ?? [],
         createdAt: c.createdAt.toISOString(),
         updatedAt: c.updatedAt.toISOString(),
     };
+}
+// CPF validation helper
+function validateCPF(cpf) {
+    // Remove non-digits
+    const cleaned = cpf.replace(/\D/g, '');
+    // Must have 11 digits
+    if (cleaned.length !== 11)
+        return false;
+    // Check for known invalid patterns
+    if (/^(\d)\1{10}$/.test(cleaned))
+        return false;
+    // Validate check digits
+    let sum = 0;
+    for (let i = 0; i < 9; i++) {
+        sum += parseInt(cleaned.charAt(i)) * (10 - i);
+    }
+    let remainder = (sum * 10) % 11;
+    if (remainder === 10 || remainder === 11)
+        remainder = 0;
+    if (remainder !== parseInt(cleaned.charAt(9)))
+        return false;
+    sum = 0;
+    for (let i = 0; i < 10; i++) {
+        sum += parseInt(cleaned.charAt(i)) * (11 - i);
+    }
+    remainder = (sum * 10) % 11;
+    if (remainder === 10 || remainder === 11)
+        remainder = 0;
+    if (remainder !== parseInt(cleaned.charAt(10)))
+        return false;
+    return true;
+}
+// Generate default password: firstName (lowercase) + last 4 digits of CPF
+function generateDefaultPassword(name, cpf) {
+    const firstName = name.split(' ')[0].toLowerCase();
+    const cleanedCPF = cpf.replace(/\D/g, '');
+    const lastFourDigits = cleanedCPF.slice(-4);
+    return `${firstName}${lastFourDigits}`;
 }
 const collaboratorsRouter = (0, express_1.Router)();
 exports.collaboratorsRouter = collaboratorsRouter;
@@ -47,9 +90,19 @@ collaboratorsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) 
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const { name, role, status, phone, email, commissionRate, serviceCategories } = req.body;
+        const { name, role, status, phone, email, cpf, commissionRate, serviceCategories, avatarUrl } = req.body;
         if (!name || !role) {
             res.status(400).json({ error: 'name and role are required' });
+            return;
+        }
+        // CPF is required
+        if (!cpf) {
+            res.status(400).json({ error: 'cpf is required' });
+            return;
+        }
+        // Validate CPF format
+        if (!validateCPF(cpf)) {
+            res.status(400).json({ error: 'Invalid CPF format' });
             return;
         }
         // Validate and sanitize input
@@ -67,14 +120,104 @@ collaboratorsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) 
             return;
         }
         const salonId = req.user.salonId;
+        // Get salon name for email
+        const salon = await prismaClient_1.prisma.salon.findUnique({
+            where: { id: salonId },
+            select: { name: true },
+        });
+        const salonName = salon?.name || 'o salão';
+        let userId = null;
+        // Clean CPF for storage
+        const cleanedCPF = cpf.replace(/\D/g, '');
+        // If email is provided, create user in Supabase and User table
+        if (email) {
+            try {
+                // Generate default password: firstName (lowercase) + last 4 digits of CPF
+                const defaultPassword = generateDefaultPassword(sanitizedName, cleanedCPF);
+                // Create user in Supabase Auth
+                const { data: authData, error: authError } = await supabase_1.supabaseAdmin.auth.admin.createUser({
+                    email: (0, validation_1.sanitizeString)(email).toLowerCase(),
+                    password: defaultPassword,
+                    email_confirm: false, // Require email confirmation
+                    user_metadata: {
+                        salonId: salonId,
+                        tenantRole: role,
+                        name: sanitizedName,
+                        phone: phone ? (0, validation_1.sanitizePhone)(phone) : null,
+                        role: role, // Legacy field
+                    },
+                });
+                if (authError) {
+                    console.error('Error creating user in Supabase:', authError);
+                    // Continue without creating user if Supabase fails
+                }
+                else if (authData?.user) {
+                    userId = authData.user.id;
+                    // Create User record in database
+                    try {
+                        await prismaClient_1.prisma.user.create({
+                            data: {
+                                id: userId,
+                                salonId,
+                                name: sanitizedName,
+                                email: (0, validation_1.sanitizeString)(email).toLowerCase(),
+                                phone: phone ? (0, validation_1.sanitizePhone)(phone) : null,
+                                tenantRole: role,
+                                passwordHash: null, // Not used with Supabase
+                            },
+                        });
+                        // Send welcome email with password reset link
+                        try {
+                            // Generate password reset link
+                            const { data: resetData, error: resetError } = await supabase_1.supabaseAdmin.auth.admin.generateLink({
+                                type: 'recovery',
+                                email: (0, validation_1.sanitizeString)(email).toLowerCase(),
+                            });
+                            if (!resetError && resetData?.properties?.action_link) {
+                                await (0, email_1.sendWelcomeEmail)((0, validation_1.sanitizeString)(email).toLowerCase(), sanitizedName, salonName, resetData.properties.action_link);
+                            }
+                            else {
+                                // Fallback: send email with default password
+                                await (0, email_1.sendWelcomeEmail)((0, validation_1.sanitizeString)(email).toLowerCase(), sanitizedName, salonName, undefined, defaultPassword);
+                            }
+                        }
+                        catch (emailError) {
+                            console.error('Error sending welcome email:', emailError);
+                            // Don't fail collaborator creation if email fails
+                        }
+                    }
+                    catch (userError) {
+                        console.error('Error creating User record:', userError);
+                        // If User creation fails, try to clean up Supabase user
+                        if (userId) {
+                            try {
+                                await supabase_1.supabaseAdmin.auth.admin.deleteUser(userId);
+                            }
+                            catch (cleanupError) {
+                                console.error('Error cleaning up Supabase user:', cleanupError);
+                            }
+                        }
+                        // Continue without user if creation fails
+                        userId = null;
+                    }
+                }
+            }
+            catch (error) {
+                console.error('Error creating user for collaborator:', error);
+                // Continue without user if there's an error
+            }
+        }
         const collaborator = await prismaClient_1.prisma.collaborator.create({
             data: {
                 salonId,
+                userId: userId,
                 name: sanitizedName,
                 role,
                 status: status ?? 'active',
                 phone: phone ? (0, validation_1.sanitizePhone)(phone) : null,
                 email: email ? (0, validation_1.sanitizeString)(email) : null,
+                cpf: cleanedCPF,
+                avatarUrl: avatarUrl ? (0, validation_1.sanitizeString)(avatarUrl) : null,
                 commissionRate: commissionRate ?? 0,
                 serviceCategories: serviceCategories ?? [],
             },
@@ -119,7 +262,7 @@ collaboratorsRouter.patch('/:id', async (req, res) => {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
-        const { name, role, status, phone, email, commissionRate, serviceCategories } = req.body;
+        const { name, role, status, phone, email, cpf, avatarUrl, commissionRate, serviceCategories } = req.body;
         const salonId = req.user.salonId;
         const existing = await prismaClient_1.prisma.collaborator.findFirst({
             where: { id: req.params.id, salonId },
@@ -129,9 +272,10 @@ collaboratorsRouter.patch('/:id', async (req, res) => {
             return;
         }
         // If editing a professional (role === 'professional'), check permission
-        if (existing.role === 'professional' && req.user.role !== 'admin' && req.user.role !== 'manager') {
+        // Only tenant_admin, super_admin (admin-like) or manager can edit professional profiles
+        const canEdit = (0, supabaseAuth_1.isAdminLike)(req.user) || req.user?.tenantRole === 'manager';
+        if (existing.role === 'professional' && !canEdit) {
             // Check if user has permission to edit professional profiles
-            // This would ideally check against the permissions system, but for now we'll restrict to admin/manager
             res.status(403).json({ error: 'Only administrators and managers can edit professional profiles' });
             return;
         }
@@ -161,6 +305,16 @@ collaboratorsRouter.patch('/:id', async (req, res) => {
                 return;
             }
             data.email = email ? (0, validation_1.sanitizeString)(email) : null;
+        }
+        if (cpf !== undefined) {
+            if (cpf && !validateCPF(cpf)) {
+                res.status(400).json({ error: 'Invalid CPF format' });
+                return;
+            }
+            data.cpf = cpf ? cpf.replace(/\D/g, '') : null;
+        }
+        if (avatarUrl !== undefined) {
+            data.avatarUrl = avatarUrl ? (0, validation_1.sanitizeString)(avatarUrl) : null;
         }
         if (commissionRate !== undefined) {
             if (commissionRate < 0 || commissionRate > 1) {

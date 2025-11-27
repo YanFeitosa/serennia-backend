@@ -1,12 +1,34 @@
 "use strict";
-// src/services/whatsapp.ts
-// Serviço de integração com WhatsApp
-// Por enquanto, implementação básica que pode ser estendida com Evolution API, Twilio, etc.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getWhatsAppConfigForSalon = getWhatsAppConfigForSalon;
 exports.replaceTemplateVariables = replaceTemplateVariables;
 exports.formatPhoneNumber = formatPhoneNumber;
 exports.sendWhatsAppMessage = sendWhatsAppMessage;
+exports.sendWhatsAppMessageForSalon = sendWhatsAppMessageForSalon;
 exports.testWhatsAppConnection = testWhatsAppConnection;
+// src/services/whatsapp.ts
+// Serviço de integração com WhatsApp via Evolution API
+const prismaClient_1 = require("../prismaClient");
+// Get WhatsApp config from salon
+async function getWhatsAppConfigForSalon(salonId) {
+    const salon = await prismaClient_1.prisma.salon.findUnique({
+        where: { id: salonId },
+        select: {
+            whatsappApiUrl: true,
+            whatsappApiKey: true,
+            whatsappInstanceId: true,
+            whatsappConnected: true,
+        },
+    });
+    if (!salon || !salon.whatsappApiUrl || !salon.whatsappApiKey || !salon.whatsappInstanceId) {
+        return null;
+    }
+    return {
+        apiUrl: salon.whatsappApiUrl,
+        apiKey: salon.whatsappApiKey,
+        instanceId: salon.whatsappInstanceId,
+    };
+}
 /**
  * Substitui variáveis em um template de mensagem
  * Exemplo: "Olá {{cliente_nome}}" -> "Olá João"
@@ -42,9 +64,7 @@ function formatPhoneNumber(phone) {
     return cleaned;
 }
 /**
- * Envia mensagem via WhatsApp
- * Por enquanto, apenas simula o envio.
- * Para produção, integrar com Evolution API, Twilio, ou WhatsApp Business API
+ * Envia mensagem via WhatsApp usando Evolution API
  */
 async function sendWhatsAppMessage(params) {
     try {
@@ -64,37 +84,44 @@ async function sendWhatsAppMessage(params) {
                 error: 'Mensagem vazia',
             };
         }
-        // TODO: Implementar integração real com WhatsApp
-        // Exemplo com Evolution API:
-        // if (config?.apiUrl && config?.apiKey && config?.instanceId) {
-        //   const response = await fetch(`${config.apiUrl}/message/sendText/${config.instanceId}`, {
-        //     method: 'POST',
-        //     headers: {
-        //       'Content-Type': 'application/json',
-        //       'apikey': config.apiKey,
-        //     },
-        //     body: JSON.stringify({
-        //       number: formattedPhone,
-        //       text: message,
-        //     }),
-        //   });
-        //   
-        //   if (!response.ok) {
-        //     const error = await response.json();
-        //     return {
-        //       success: false,
-        //       error: error.message || 'Erro ao enviar mensagem',
-        //     };
-        //   }
-        //   
-        //   const data = await response.json();
-        //   return {
-        //     success: true,
-        //     messageId: data.key?.id,
-        //   };
-        // }
-        // Por enquanto, apenas simula sucesso
-        // Em produção, isso deve ser substituído pela integração real
+        // Se tem configuração da Evolution API, usa ela
+        if (config?.apiUrl && config?.apiKey && config?.instanceId) {
+            try {
+                const response = await fetch(`${config.apiUrl}/message/sendText/${config.instanceId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': config.apiKey,
+                    },
+                    body: JSON.stringify({
+                        number: formattedPhone,
+                        text: message,
+                    }),
+                });
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    console.error('Evolution API error:', errorData);
+                    return {
+                        success: false,
+                        error: errorData.message || 'Erro ao enviar mensagem via Evolution API',
+                    };
+                }
+                const data = await response.json();
+                console.log(`[WhatsApp] Mensagem enviada para ${formattedPhone}`);
+                return {
+                    success: true,
+                    messageId: data.key?.id || data.messageId,
+                };
+            }
+            catch (fetchError) {
+                console.error('Error calling Evolution API:', fetchError);
+                return {
+                    success: false,
+                    error: 'Não foi possível conectar à API do WhatsApp',
+                };
+            }
+        }
+        // Fallback: simula envio se não há configuração
         console.log(`[WhatsApp Simulado] Enviando para ${formattedPhone}: ${message.substring(0, 50)}...`);
         return {
             success: true,
@@ -108,6 +135,21 @@ async function sendWhatsAppMessage(params) {
             error: error instanceof Error ? error.message : 'Erro desconhecido ao enviar mensagem',
         };
     }
+}
+/**
+ * Envia mensagem via WhatsApp para um salão específico
+ * Busca as configurações do salão automaticamente
+ */
+async function sendWhatsAppMessageForSalon(salonId, to, message) {
+    const config = await getWhatsAppConfigForSalon(salonId);
+    if (!config) {
+        console.log(`[WhatsApp] Salão ${salonId} não tem configuração de WhatsApp, simulando envio`);
+    }
+    return sendWhatsAppMessage({
+        to,
+        message,
+        config: config || undefined,
+    });
 }
 /**
  * Testa a conexão com o serviço de WhatsApp

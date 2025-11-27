@@ -4,6 +4,7 @@ exports.auditRouter = void 0;
 const express_1 = require("express");
 const prismaClient_1 = require("../prismaClient");
 const auth_1 = require("../middleware/auth");
+const supabaseAuth_1 = require("../middleware/supabaseAuth");
 const auditRouter = (0, express_1.Router)();
 exports.auditRouter = auditRouter;
 function mapAuditLog(log) {
@@ -27,8 +28,9 @@ auditRouter.get("/", auth_1.authMiddleware, async (req, res) => {
             res.status(401).json({ error: "Unauthorized" });
             return;
         }
-        // Only admin and manager can access audit logs
-        if (req.user.role !== "admin" && req.user.role !== "manager") {
+        // Only tenant_admin, super_admin (admin-like) or manager can access audit logs
+        const canAccess = (0, supabaseAuth_1.isAdminLike)(req.user) || req.user?.tenantRole === 'manager';
+        if (!canAccess) {
             res.status(403).json({ error: "Forbidden" });
             return;
         }

@@ -21,7 +21,7 @@ exports.loginRateLimiter = (0, express_rate_limit_1.default)({
 // Rate limiter for general API endpoints
 exports.apiRateLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // 100 requests per windowMs
+    max: 200, // 200 requests per windowMs (aumentado para evitar muitos erros)
     message: 'Muitas requisições. Tente novamente mais tarde.',
     standardHeaders: true,
     legacyHeaders: false,

@@ -4,6 +4,7 @@ exports.productsRouter = void 0;
 const express_1 = require("express");
 const prismaClient_1 = require("../prismaClient");
 const validation_1 = require("../utils/validation");
+const rateLimiter_1 = require("../middleware/rateLimiter");
 function mapProduct(p) {
     return {
         id: p.id,
@@ -62,7 +63,7 @@ productsRouter.get('/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch product' });
     }
 });
-productsRouter.post('/', async (req, res) => {
+productsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) => {
     try {
         const { name, category, description, price, costPrice, stock, isActive, } = req.body;
         if (!name || price == null || stock == null) {

@@ -8,20 +8,32 @@ exports.sanitizePhone = sanitizePhone;
 exports.validateUuid = validateUuid;
 exports.sanitizeHtml = sanitizeHtml;
 function sanitizeString(input) {
-    if (!input || typeof input !== 'string') {
+    if (input === null || input === undefined) {
         return '';
+    }
+    // Convert to string if not already
+    if (typeof input !== 'string') {
+        input = String(input);
     }
     return input.trim();
 }
 function validateEmail(email) {
     if (!email)
         return false;
+    // Convert to string if not already
+    if (typeof email !== 'string') {
+        email = String(email);
+    }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email.trim());
 }
 function validatePhone(phone) {
     if (!phone)
         return false;
+    // Convert to string if not already
+    if (typeof phone !== 'string') {
+        phone = String(phone);
+    }
     // Remove all non-digit characters
     const cleaned = phone.replace(/\D/g, '');
     // Brazilian phone: 10-11 digits (with or without country code)
@@ -30,6 +42,10 @@ function validatePhone(phone) {
 function sanitizePhone(phone) {
     if (!phone)
         return '';
+    // Convert to string if not already
+    if (typeof phone !== 'string') {
+        phone = String(phone);
+    }
     return phone.replace(/\D/g, '');
 }
 function validateUuid(uuid) {

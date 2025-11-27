@@ -14,27 +14,31 @@ async function createInitialUsers() {
         const hashedPassword = await bcrypt_1.default.hash(defaultPassword, 10);
         const users = [
             {
-                email: "admin@serenna.com",
+                email: "admin@serennia.com",
                 name: "Ana (Admin)",
-                role: "admin",
+                platformRole: "tenant_admin",
+                tenantRole: null,
                 passwordHash: hashedPassword,
             },
             {
-                email: "manager@serenna.com",
+                email: "manager@serennia.com",
                 name: "Beatriz (Gerente)",
-                role: "manager",
+                platformRole: null,
+                tenantRole: "manager",
                 passwordHash: hashedPassword,
             },
             {
-                email: "reception@serenna.com",
+                email: "reception@serennia.com",
                 name: "Carla (Recepcionista)",
-                role: "receptionist",
+                platformRole: null,
+                tenantRole: "receptionist",
                 passwordHash: hashedPassword,
             },
             {
-                email: "diana@serenna.com",
+                email: "diana@serennia.com",
                 name: "Diana (Profissional)",
-                role: "professional",
+                platformRole: null,
+                tenantRole: "professional",
                 passwordHash: hashedPassword,
             },
         ];
@@ -49,14 +53,16 @@ async function createInitialUsers() {
                     },
                     update: {
                         name: userData.name,
-                        role: userData.role,
+                        platformRole: userData.platformRole,
+                        tenantRole: userData.tenantRole,
                         passwordHash: userData.passwordHash,
                     },
                     create: {
                         salonId,
                         email: userData.email,
                         name: userData.name,
-                        role: userData.role,
+                        platformRole: userData.platformRole,
+                        tenantRole: userData.tenantRole,
                         passwordHash: userData.passwordHash,
                     },
                 });

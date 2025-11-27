@@ -173,6 +173,7 @@ model User {
   platformRole PlatformRole?
   tenantRole   UserRole?
   avatarUrl    String?
+  deletedAt    DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -187,6 +188,7 @@ model User {
   @@unique([salonId, email])
   @@index([platformRole])
   @@index([salonId, platformRole])
+  @@index([deletedAt])
 }
 
 model Client {
@@ -197,6 +199,7 @@ model Client {
   email     String?
   lastVisit DateTime?
   isActive  Boolean   @default(true)
+  deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
@@ -206,6 +209,7 @@ model Client {
   messageLogs  MessageLog[]
 
   @@unique([salonId, phone])
+  @@index([deletedAt])
 }
 
 model Collaborator {
@@ -221,6 +225,7 @@ model Collaborator {
   commissionRate    Decimal
   serviceCategories String[]
   avatarUrl         String?
+  deletedAt         DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
@@ -235,6 +240,7 @@ model Collaborator {
   @@unique([salonId, phone])
   @@unique([salonId, email])
   @@unique([salonId, cpf])
+  @@index([deletedAt])
 }
 
 model Category {
@@ -242,6 +248,8 @@ model Category {
   salonId   String
   type      CategoryType
   name      String
+  isActive  Boolean      @default(true)
+  deletedAt DateTime?
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -250,6 +258,7 @@ model Category {
   products Product[] @relation("ProductCategory")
 
   @@unique([salonId, type, name])
+  @@index([deletedAt])
 }
 
 model Service {
@@ -262,6 +271,7 @@ model Service {
   price       Decimal
   commission  Decimal?
   isActive    Boolean  @default(true)
+  deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -269,6 +279,8 @@ model Service {
   category     Category?            @relation("ServiceCategory", fields: [categoryId], references: [id])
   appointments AppointmentService[]
   orderItems   OrderItem[]
+
+  @@index([deletedAt])
 }
 
 model Product {
@@ -281,12 +293,15 @@ model Product {
   costPrice   Decimal?
   stock       Int
   isActive    Boolean  @default(true)
+  deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   salon      Salon       @relation(fields: [salonId], references: [id])
   category   Category?   @relation("ProductCategory", fields: [categoryId], references: [id])
   orderItems OrderItem[]
+
+  @@index([deletedAt])
 }
 
 model Appointment {
@@ -354,6 +369,7 @@ model OrderItem {
   quantity       Int           @default(1)
   price          Decimal
   commission     Decimal
+  deletedAt      DateTime?
   createdAt      DateTime      @default(now())
 
   order        Order         @relation(fields: [orderId], references: [id])
@@ -363,6 +379,8 @@ model OrderItem {
   collaborator Collaborator? @relation(fields: [collaboratorId], references: [id])
 
   commissionRecords CommissionRecord[]
+
+  @@index([deletedAt])
 }
 
 model Payment {
@@ -437,6 +455,7 @@ model MessageTemplate {
   content   String
   variables Json?
   isActive  Boolean       @default(true)
+  deletedAt DateTime?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
@@ -444,6 +463,7 @@ model MessageTemplate {
   messageLogs MessageLog[]
 
   @@unique([salonId, name])
+  @@index([deletedAt])
 }
 
 model MessageLog {
@@ -477,12 +497,15 @@ model Expense {
   name      String
   amount    Decimal
   type      ExpenseType
+  isActive  Boolean     @default(true)
+  deletedAt DateTime?
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
   salon Salon @relation(fields: [salonId], references: [id])
 
   @@unique([salonId, name])
+  @@index([deletedAt])
 }
 
 model CommissionPayment {

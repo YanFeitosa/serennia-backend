@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
 import { AuthRequest } from '../middleware/auth';
+import { hasPermission } from '../middleware/supabaseAuth';
 import { sanitizeString } from '../utils/validation';
 import { createRateLimiter } from '../middleware/rateLimiter';
 
@@ -14,7 +15,6 @@ function mapProduct(p: any) {
     price: Number(p.price),
     costPrice: p.costPrice != null ? Number(p.costPrice) : undefined,
     stock: p.stock,
-    isActive: p.isActive,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   };
@@ -32,7 +32,7 @@ productsRouter.get('/', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const products = await prisma.product.findMany({
-      where: { salonId, isActive: true },
+      where: { salonId, isActive: true, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: { category: true },
     });
@@ -54,7 +54,7 @@ productsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const product = await prisma.product.findFirst({
-      where: { id: req.params.id, salonId, isActive: true },
+      where: { id: req.params.id, salonId, isActive: true, deletedAt: null },
       include: { category: true },
     });
 
@@ -283,10 +283,17 @@ productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // Check permission to delete products
+    const canDelete = await hasPermission(req.user, 'podeDeletarProduto');
+    if (!canDelete) {
+      res.status(403).json({ error: 'Você não tem permissão para excluir produtos' });
+      return;
+    }
+
     const salonId = req.user.salonId;
 
     const existing = await prisma.product.findFirst({
-      where: { id: req.params.id, salonId },
+      where: { id: req.params.id, salonId, deletedAt: null },
     });
 
     if (!existing) {
@@ -296,7 +303,7 @@ productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     await prisma.product.update({
       where: { id: existing.id },
-      data: { isActive: false },
+      data: { deletedAt: new Date() },
     });
 
     res.status(204).send();

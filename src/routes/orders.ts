@@ -96,7 +96,7 @@ ordersRouter.get('/', async (req: AuthRequest, res: Response) => {
     const orders = await prisma.order.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      include: { items: true, appointment: true, client: true },
+      include: { items: { where: { deletedAt: null } }, appointment: true, client: true },
     });
 
     res.json(orders.map(mapOrder));
@@ -117,7 +117,7 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 
     const order = await prisma.order.findFirst({
       where: { id: req.params.id, salonId },
-      include: { items: true, appointment: true },
+      include: { items: { where: { deletedAt: null } }, appointment: true },
     });
 
     if (!order) {
@@ -164,7 +164,7 @@ ordersRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response
         status: 'open',
         finalValue: 0,
       },
-      include: { items: true, appointment: true },
+      include: { items: { where: { deletedAt: null } }, appointment: true },
     });
 
     res.status(201).json(mapOrder(order));
@@ -218,7 +218,7 @@ ordersRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
     const updated = await prisma.order.update({
       where: { id: existing.id },
       data,
-      include: { items: true, appointment: true },
+      include: { items: { where: { deletedAt: null } }, appointment: true },
     });
 
     res.json(mapOrder(updated));
@@ -330,7 +330,7 @@ ordersRouter.post('/:id/items', async (req: AuthRequest, res: Response) => {
       });
 
       const items = await tx.orderItem.findMany({
-        where: { orderId: order.id, salonId },
+        where: { orderId: order.id, salonId, deletedAt: null },
       });
 
       const finalValue = items.reduce((sum, it) => {
@@ -341,7 +341,7 @@ ordersRouter.post('/:id/items', async (req: AuthRequest, res: Response) => {
       const updatedOrder = await tx.order.update({
         where: { id: order.id },
         data: { finalValue },
-        include: { items: true, appointment: true },
+        include: { items: { where: { deletedAt: null } }, appointment: true },
       });
 
       return updatedOrder;
@@ -410,19 +410,22 @@ ordersRouter.delete('/:id/items/:itemId', async (req: AuthRequest, res: Response
       }
 
       const item = await tx.orderItem.findFirst({
-        where: { id: req.params.itemId, orderId: order.id, salonId },
+        where: { id: req.params.itemId, orderId: order.id, salonId, deletedAt: null },
       });
 
       if (!item) {
         throw new Error('ITEM_NOT_FOUND');
       }
 
-      await tx.orderItem.delete({
+      // Soft delete the order item
+      await tx.orderItem.update({
         where: { id: item.id },
+        data: { deletedAt: new Date() },
       });
 
+      // Recalculate total excluding soft deleted items
       const items = await tx.orderItem.findMany({
-        where: { orderId: order.id, salonId },
+        where: { orderId: order.id, salonId, deletedAt: null },
       });
 
       const finalValue = items.reduce((sum, it) => {
@@ -433,7 +436,10 @@ ordersRouter.delete('/:id/items/:itemId', async (req: AuthRequest, res: Response
       const updatedOrder = await tx.order.update({
         where: { id: order.id },
         data: { finalValue },
-        include: { items: true, appointment: true },
+        include: { 
+          items: { where: { deletedAt: null } }, 
+          appointment: true 
+        },
       });
 
       return updatedOrder;
@@ -471,7 +477,7 @@ ordersRouter.post('/:id/close', async (req: AuthRequest, res: Response) => {
 
     const existing = await prisma.order.findFirst({
       where: { id: req.params.id, salonId },
-      include: { items: true, appointment: true },
+      include: { items: { where: { deletedAt: null } }, appointment: true },
     });
 
     if (!existing) {
@@ -490,7 +496,7 @@ ordersRouter.post('/:id/close', async (req: AuthRequest, res: Response) => {
         status: 'closed',
         closedAt: new Date(),
       },
-      include: { items: true, appointment: true },
+      include: { items: { where: { deletedAt: null } }, appointment: true },
     });
 
     res.json(mapOrder(updated));
@@ -511,7 +517,7 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
 
     const existing = await prisma.order.findFirst({
       where: { id: req.params.id, salonId },
-      include: { items: true, appointment: true },
+      include: { items: { where: { deletedAt: null } }, appointment: true },
     });
 
     if (!existing) {
@@ -530,7 +536,7 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
         status: 'paid',
         closedAt: existing.closedAt ?? new Date(),
       },
-      include: { items: true, appointment: true },
+      include: { items: { where: { deletedAt: null } }, appointment: true },
     });
 
     res.json(mapOrder(updated));

@@ -32,6 +32,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     'editarPerfilProfissionais',
     'podeEditarProduto',
     'podeEditarServico',
+    'podeDeletarCliente',
+    'podeDeletarColaborador',
+    'podeDeletarProduto',
+    'podeDeletarServico',
   ],
   manager: [
     'servicos',
@@ -40,6 +44,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     'financeiro',
     'configuracoes',
     'auditoria',
+    'podeDeletarCliente',
+    'podeDeletarColaborador',
+    'podeDeletarProduto',
+    'podeDeletarServico',
   ],
   receptionist: [
     'agenda',

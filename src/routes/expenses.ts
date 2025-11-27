@@ -29,7 +29,7 @@ expensesRouter.get('/', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const expenses = await prisma.expense.findMany({
-      where: { salonId },
+      where: { salonId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -108,7 +108,7 @@ expensesRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const existing = await prisma.expense.findFirst({
-      where: { id: req.params.id, salonId },
+      where: { id: req.params.id, salonId, deletedAt: null },
     });
 
     if (!existing) {
@@ -165,7 +165,7 @@ expensesRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /expenses/:id - Delete an expense
+// DELETE /expenses/:id - Soft delete an expense
 expensesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) {
@@ -176,7 +176,7 @@ expensesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const existing = await prisma.expense.findFirst({
-      where: { id: req.params.id, salonId },
+      where: { id: req.params.id, salonId, deletedAt: null },
     });
 
     if (!existing) {
@@ -184,8 +184,9 @@ expensesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    await prisma.expense.delete({
+    await prisma.expense.update({
       where: { id: existing.id },
+      data: { deletedAt: new Date() },
     });
 
     res.status(204).send();

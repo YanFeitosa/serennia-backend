@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
 import { AuthRequest } from '../middleware/auth';
-import { isAdminLike } from '../middleware/supabaseAuth';
+import { isAdminLike, hasPermission } from '../middleware/supabaseAuth';
 import { UserRole, CollaboratorStatus } from '../types/enums';
 import { sanitizeString, validateEmail, validatePhone, sanitizePhone } from '../utils/validation';
 import { createRateLimiter } from '../middleware/rateLimiter';
@@ -408,10 +408,17 @@ collaboratorsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // Check permission to delete collaborators
+    const canDelete = await hasPermission(req.user, 'podeDeletarColaborador');
+    if (!canDelete) {
+      res.status(403).json({ error: 'Você não tem permissão para excluir colaboradores' });
+      return;
+    }
+
     const salonId = req.user.salonId;
 
     const existing = await prisma.collaborator.findFirst({
-      where: { id: req.params.id, salonId },
+      where: { id: req.params.id, salonId, deletedAt: null },
     });
 
     if (!existing) {
@@ -421,7 +428,7 @@ collaboratorsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     await prisma.collaborator.update({
       where: { id: existing.id },
-      data: { status: 'inactive' },
+      data: { status: 'inactive', deletedAt: new Date() },
     });
 
     res.status(204).send();

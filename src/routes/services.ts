@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
 import { AuthRequest } from '../middleware/auth';
+import { hasPermission } from '../middleware/supabaseAuth';
 import { sanitizeString } from '../utils/validation';
 import { createRateLimiter } from '../middleware/rateLimiter';
 
@@ -32,7 +33,7 @@ servicesRouter.get('/', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const services = await prisma.service.findMany({
-      where: { salonId, isActive: true },
+      where: { salonId, isActive: true, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: { category: true },
     });
@@ -54,7 +55,7 @@ servicesRouter.get('/:id', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const service = await prisma.service.findFirst({
-      where: { id: req.params.id, salonId, isActive: true },
+      where: { id: req.params.id, salonId, isActive: true, deletedAt: null },
       include: { category: true },
     });
 
@@ -299,10 +300,17 @@ servicesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // Check permission to delete services
+    const canDelete = await hasPermission(req.user, 'podeDeletarServico');
+    if (!canDelete) {
+      res.status(403).json({ error: 'Você não tem permissão para excluir serviços' });
+      return;
+    }
+
     const salonId = req.user.salonId;
 
     const existing = await prisma.service.findFirst({
-      where: { id: req.params.id, salonId },
+      where: { id: req.params.id, salonId, deletedAt: null },
     });
 
     if (!existing) {
@@ -312,7 +320,7 @@ servicesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     await prisma.service.update({
       where: { id: existing.id },
-      data: { isActive: false },
+      data: { isActive: false, deletedAt: new Date() },
     });
 
     res.status(204).send();

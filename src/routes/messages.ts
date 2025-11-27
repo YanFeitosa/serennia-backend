@@ -48,7 +48,7 @@ messagesRouter.get('/templates', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
     const { isActive } = req.query;
 
-    const where: any = { salonId };
+    const where: any = { salonId, deletedAt: null };
     if (isActive !== undefined) {
       where.isActive = isActive === 'true';
     }
@@ -77,7 +77,7 @@ messagesRouter.get('/templates/:id', async (req: AuthRequest, res: Response) => 
     const { id } = req.params;
 
     const template = await prisma.messageTemplate.findFirst({
-      where: { id, salonId },
+      where: { id, salonId, deletedAt: null },
     });
 
     if (!template) {
@@ -200,7 +200,7 @@ messagesRouter.patch('/templates/:id', async (req: AuthRequest, res: Response) =
   }
 });
 
-// DELETE /messages/templates/:id - Deletar template
+// DELETE /messages/templates/:id - Soft delete template
 messagesRouter.delete('/templates/:id', async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) {
@@ -212,7 +212,7 @@ messagesRouter.delete('/templates/:id', async (req: AuthRequest, res: Response) 
     const { id } = req.params;
 
     const existing = await prisma.messageTemplate.findFirst({
-      where: { id, salonId },
+      where: { id, salonId, deletedAt: null },
     });
 
     if (!existing) {
@@ -220,8 +220,9 @@ messagesRouter.delete('/templates/:id', async (req: AuthRequest, res: Response) 
       return;
     }
 
-    await prisma.messageTemplate.delete({
+    await prisma.messageTemplate.update({
       where: { id },
+      data: { isActive: false, deletedAt: new Date() },
     });
 
     res.status(204).send();

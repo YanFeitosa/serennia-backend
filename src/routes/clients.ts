@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../prismaClient';
 import { AuthRequest } from '../middleware/auth';
+import { hasPermission } from '../middleware/supabaseAuth';
 import { sanitizeString, validateEmail, validatePhone, sanitizePhone } from '../utils/validation';
 import { createRateLimiter } from '../middleware/rateLimiter';
 
@@ -29,7 +30,7 @@ clientsRouter.get('/', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const clients = await prisma.client.findMany({
-      where: { salonId, isActive: true },
+      where: { salonId, isActive: true, deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -201,10 +202,17 @@ clientsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // Check permission to delete clients
+    const canDelete = await hasPermission(req.user, 'podeDeletarCliente');
+    if (!canDelete) {
+      res.status(403).json({ error: 'Você não tem permissão para excluir clientes' });
+      return;
+    }
+
     const salonId = req.user.salonId;
 
     const existing = await prisma.client.findFirst({
-      where: { id: req.params.id, salonId },
+      where: { id: req.params.id, salonId, deletedAt: null },
     });
 
     if (!existing) {
@@ -214,7 +222,7 @@ clientsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     await prisma.client.update({
       where: { id: existing.id },
-      data: { isActive: false },
+      data: { isActive: false, deletedAt: new Date() },
     });
 
     res.status(204).send();

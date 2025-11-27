@@ -31,6 +31,56 @@ export function getEffectiveRole(user: SupabaseAuthRequest['user']): string {
   return user.tenantRole || user.platformRole || 'admin';
 }
 
+/**
+ * Check if user has a specific permission based on role and salon settings
+ * @param user - The authenticated user
+ * @param permission - The permission key to check
+ * @param rolePermissions - Optional custom role permissions from salon settings
+ */
+export async function hasPermission(
+  user: SupabaseAuthRequest['user'],
+  permission: string,
+  rolePermissions?: Record<string, string[]> | null
+): Promise<boolean> {
+  if (!user) return false;
+  
+  // Super admin and tenant_admin have all permissions
+  if (isAdminLike(user)) return true;
+  
+  const effectiveRole = getEffectiveRole(user);
+  
+  // If custom role permissions provided, use them
+  if (rolePermissions && rolePermissions[effectiveRole]) {
+    return rolePermissions[effectiveRole].includes(permission);
+  }
+  
+  // Otherwise, fetch from salon settings
+  if (user.salonId) {
+    const salon = await prisma.salon.findUnique({
+      where: { id: user.salonId },
+      select: { rolePermissions: true }
+    });
+    
+    const perms = salon?.rolePermissions as Record<string, string[]> | null;
+    if (perms && perms[effectiveRole]) {
+      return perms[effectiveRole].includes(permission);
+    }
+  }
+  
+  // Default permissions by role
+  const defaultPermissions: Record<string, string[]> = {
+    manager: [
+      'servicos', 'produtos', 'colaboradores', 'financeiro', 'configuracoes', 'auditoria',
+      'podeDeletarCliente', 'podeDeletarColaborador', 'podeDeletarProduto', 'podeDeletarServico'
+    ],
+    receptionist: ['agenda', 'comandas', 'clientes', 'servicos', 'produtos', 'colaboradores', 'notificacoes'],
+    professional: ['agenda', 'comandas', 'clientes', 'notificacoes'],
+    accountant: ['financeiro'],
+  };
+  
+  return defaultPermissions[effectiveRole]?.includes(permission) ?? false;
+}
+
 export const supabaseAuthMiddleware = async (
   req: SupabaseAuthRequest,
   res: Response,

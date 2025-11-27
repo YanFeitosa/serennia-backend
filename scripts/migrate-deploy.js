@@ -6,7 +6,7 @@
  * Caso contrário, tenta converter a URL do pooler para conexão direta.
  */
 
-const { execSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 // Carrega o .env
 require('dotenv').config();
@@ -40,70 +40,73 @@ console.log('📝 URL:', directUrl.replace(/:[^:@]+@/, ':****@'));
 
 process.env.DATABASE_URL = directUrl;
 
-try {
-  execSync(`npx prisma migrate deploy`, {
-    stdio: 'inherit',
+// Lista de todas as migrações para fazer baseline se necessário
+const allMigrations = [
+  '20251120022559_init',
+  '20251120155817_add_category_and_soft_delete',
+  '20251120162738_remove_buffer_time',
+  '20251120171416_add_salon_commission_settings'
+];
+
+function runCommand(command, args = []) {
+  const result = spawnSync(command, args, {
     env: process.env,
+    stdio: 'pipe',
+    shell: true,
     timeout: 120000
   });
   
-  console.log('✅ Migrações aplicadas com sucesso!');
-} catch (error) {
-  const errorMsg = error.message || '';
+  const stdout = result.stdout ? result.stdout.toString() : '';
+  const stderr = result.stderr ? result.stderr.toString() : '';
   
-  // Se o banco não está vazio (P3005), fazer baseline
-  if (errorMsg.includes('P3005') || errorMsg.includes('not empty')) {
-    console.log('⚠️  Banco já existe. Tentando resolver com baseline...');
-    
-    try {
-      // Marca todas as migrações como já aplicadas
-      execSync(`npx prisma migrate resolve --applied 20251120022559_init`, {
-        stdio: 'inherit',
-        env: process.env,
-        timeout: 60000
-      });
-      console.log('✅ Baseline aplicado para migração init');
-      
-      // Tenta aplicar as migrações restantes
-      try {
-        execSync(`npx prisma migrate deploy`, {
-          stdio: 'inherit',
-          env: process.env,
-          timeout: 120000
-        });
-        console.log('✅ Migrações restantes aplicadas!');
-      } catch (deployError) {
-        // Se ainda falhar com "not empty", marca as outras migrações também
-        console.log('⚠️  Tentando marcar todas as migrações como aplicadas...');
-        const migrations = [
-          '20251120155817_add_category_and_soft_delete',
-          '20251120162738_remove_buffer_time',
-          '20251120171416_add_salon_commission_settings'
-        ];
-        
-        for (const migration of migrations) {
-          try {
-            execSync(`npx prisma migrate resolve --applied ${migration}`, {
-              stdio: 'inherit',
-              env: process.env,
-              timeout: 30000
-            });
-            console.log(`✅ Migração ${migration} marcada como aplicada`);
-          } catch (e) {
-            // Ignora se já foi marcada
-          }
-        }
-        console.log('✅ Todas as migrações marcadas como aplicadas!');
-      }
-    } catch (baselineError) {
-      console.error('⚠️  Erro no baseline, continuando sem migrações:', baselineError.message);
-      // Continua mesmo assim - o banco pode já estar sincronizado via db push
-    }
-  } else if (errorMsg.includes('No pending migrations')) {
-    console.log('ℹ️  Nenhuma migração pendente.');
-  } else {
-    console.error('❌ Erro nas migrações:', errorMsg);
-    process.exit(1);
-  }
+  return {
+    success: result.status === 0,
+    stdout,
+    stderr,
+    output: stdout + stderr
+  };
 }
+
+// Tenta deploy normal
+console.log('📦 Tentando migrate deploy...');
+let result = runCommand('npx', ['prisma', 'migrate', 'deploy']);
+
+if (result.success) {
+  console.log(result.output);
+  console.log('✅ Migrações aplicadas com sucesso!');
+  process.exit(0);
+}
+
+// Verifica se é erro P3005 (banco não está vazio)
+if (result.output.includes('P3005') || result.output.includes('not empty')) {
+  console.log('⚠️  Banco já existe com dados. Fazendo baseline de todas as migrações...');
+  
+  // Marca todas as migrações como já aplicadas
+  for (const migration of allMigrations) {
+    console.log(`📌 Marcando migração ${migration} como aplicada...`);
+    const resolveResult = runCommand('npx', ['prisma', 'migrate', 'resolve', '--applied', migration]);
+    
+    if (resolveResult.success) {
+      console.log(`✅ ${migration} marcada como aplicada`);
+    } else if (resolveResult.output.includes('already') || resolveResult.output.includes('applied')) {
+      console.log(`ℹ️  ${migration} já estava marcada`);
+    } else {
+      console.log(`⚠️  Aviso ao marcar ${migration}:`, resolveResult.output.substring(0, 200));
+    }
+  }
+  
+  console.log('✅ Baseline concluído! Todas as migrações marcadas como aplicadas.');
+  process.exit(0);
+}
+
+// Se não for P3005, verifica se não há migrações pendentes
+if (result.output.includes('No pending migrations') || result.output.includes('Already in sync')) {
+  console.log('ℹ️  Banco já está sincronizado, nenhuma migração pendente.');
+  process.exit(0);
+}
+
+// Outro erro
+console.error('❌ Erro nas migrações:');
+console.error(result.output);
+process.exit(1);
 

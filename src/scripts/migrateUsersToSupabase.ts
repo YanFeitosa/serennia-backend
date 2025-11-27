@@ -22,7 +22,8 @@ async function migrateUsers() {
       name: true,
       email: true,
       passwordHash: true,
-      role: true,
+      platformRole: true,
+      tenantRole: true,
     },
   });
 
@@ -48,7 +49,8 @@ async function migrateUsers() {
         email_confirm: true, // Auto-confirm email
         user_metadata: {
           salonId: user.salonId,
-          role: user.role,
+          platformRole: user.platformRole,
+          tenantRole: user.tenantRole,
           name: user.name,
           migratedUserId: user.id, // Keep reference to original user ID
         },

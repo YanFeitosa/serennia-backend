@@ -13,25 +13,29 @@ async function createInitialUsers() {
       {
         email: "admin@serennia.com",
         name: "Ana (Admin)",
-        role: "admin" as const,
+        platformRole: "tenant_admin" as const,
+        tenantRole: null,
         passwordHash: hashedPassword,
       },
       {
         email: "manager@serennia.com",
         name: "Beatriz (Gerente)",
-        role: "manager" as const,
+        platformRole: null,
+        tenantRole: "manager" as const,
         passwordHash: hashedPassword,
       },
       {
         email: "reception@serennia.com",
         name: "Carla (Recepcionista)",
-        role: "receptionist" as const,
+        platformRole: null,
+        tenantRole: "receptionist" as const,
         passwordHash: hashedPassword,
       },
       {
         email: "diana@serennia.com",
         name: "Diana (Profissional)",
-        role: "professional" as const,
+        platformRole: null,
+        tenantRole: "professional" as const,
         passwordHash: hashedPassword,
       },
     ];
@@ -47,14 +51,16 @@ async function createInitialUsers() {
           },
           update: {
             name: userData.name,
-            role: userData.role,
+            platformRole: userData.platformRole,
+            tenantRole: userData.tenantRole,
             passwordHash: userData.passwordHash,
           },
           create: {
             salonId,
             email: userData.email,
             name: userData.name,
-            role: userData.role,
+            platformRole: userData.platformRole,
+            tenantRole: userData.tenantRole,
             passwordHash: userData.passwordHash,
           },
         });

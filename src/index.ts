@@ -113,6 +113,10 @@ app.get("/salon", authMiddleware, async (req: AuthRequest, res: Response) => {
     }
 
     const salonId = req.user.salonId;
+    if (!salonId) {
+      res.status(400).json({ error: 'Salon context required' });
+      return;
+    }
     const salon = await prisma.salon.findUnique({ where: { id: salonId } });
 
     if (!salon) {
@@ -177,6 +181,10 @@ app.patch("/salon", apiRateLimiter, authMiddleware, async (req: AuthRequest, res
     };
 
     const salonId = req.user.salonId;
+    if (!salonId) {
+      res.status(400).json({ error: 'Salon context required' });
+      return;
+    }
 
     const data: any = {};
     if (name !== undefined) data.name = name;
@@ -286,6 +294,10 @@ app.post("/salon/test-whatsapp", apiRateLimiter, authMiddleware, async (req: Aut
     }
 
     const salonId = req.user.salonId;
+    if (!salonId) {
+      res.status(400).json({ success: false, error: 'Salon context required' });
+      return;
+    }
     const salon = await prisma.salon.findUnique({
       where: { id: salonId },
       select: {
@@ -349,6 +361,10 @@ app.post("/salon/test-payment", apiRateLimiter, authMiddleware, async (req: Auth
     }
 
     const salonId = req.user.salonId;
+    if (!salonId) {
+      res.status(400).json({ success: false, error: 'Salon context required' });
+      return;
+    }
     const salon = await prisma.salon.findUnique({
       where: { id: salonId },
       select: {
@@ -426,7 +442,7 @@ app.post("/salon/test-payment", apiRateLimiter, authMiddleware, async (req: Auth
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 4000;
+const PORT = parseInt(process.env.PORT || '4000', 10);
 
 // Function to kill process on port (Windows)
 async function killPort(port: number): Promise<boolean> {

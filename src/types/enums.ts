@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "manager" | "receptionist" | "professional";
+export type UserRole = "manager" | "receptionist" | "professional";
 export type CollaboratorStatus = "active" | "inactive";
 export type AppointmentStatus =
   | "pending"

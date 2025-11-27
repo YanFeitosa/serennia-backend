@@ -123,10 +123,25 @@ model Salon {
   fixedCostsMonthly   Decimal?
   variableCostRate     Decimal?
   rolePermissions      Json?
+  theme                Json?
   tenantAdminId String?     @unique
   status        SalonStatus @default(pending)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
+
+  // WhatsApp Integration
+  whatsappApiUrl      String?
+  whatsappApiKey      String?
+  whatsappInstanceId  String?
+  whatsappPhone       String?
+  whatsappConnected   Boolean   @default(false)
+
+  // Payment Integration
+  paymentProvider       String?
+  mpAccessToken         String?
+  mpPublicKey           String?
+  stripeSecretKey       String?
+  stripePublishableKey  String?
 
   tenantAdmin   User?       @relation("SalonTenantAdmin", fields: [tenantAdminId], references: [id])
   users         User[]
@@ -139,6 +154,8 @@ model Salon {
   orders        Order[]
   payments      Payment[]
   commissionRecords CommissionRecord[]
+  commissionPayments CommissionPayment[]
+  expenses      Expense[]
   auditLogs     AuditLog[]
   notifications Notification[]
   orderItems    OrderItem[]
@@ -200,8 +217,10 @@ model Collaborator {
   status            CollaboratorStatus
   phone             String?
   email             String?
+  cpf               String?
   commissionRate    Decimal
   serviceCategories String[]
+  avatarUrl         String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
@@ -211,9 +230,11 @@ model Collaborator {
   appointments      Appointment[]
   orderItems        OrderItem[]
   commissionRecords CommissionRecord[]
+  commissionPayments CommissionPayment[]
 
   @@unique([salonId, phone])
   @@unique([salonId, email])
+  @@unique([salonId, cpf])
 }
 
 model Category {
@@ -443,4 +464,37 @@ model MessageLog {
   client       Client           @relation(fields: [clientId], references: [id])
 
   createdAt    DateTime         @default(now())
+}
+
+enum ExpenseType {
+  FIXED
+  VARIABLE
+}
+
+model Expense {
+  id        String      @id @default(uuid())
+  salonId   String
+  name      String
+  amount    Decimal
+  type      ExpenseType
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  salon Salon @relation(fields: [salonId], references: [id])
+
+  @@unique([salonId, name])
+}
+
+model CommissionPayment {
+  id             String   @id @default(uuid())
+  salonId        String
+  collaboratorId String
+  amount         Decimal
+  periodStart    DateTime
+  periodEnd      DateTime
+  paidAt         DateTime @default(now())
+  notes          String?
+
+  salon        Salon        @relation(fields: [salonId], references: [id])
+  collaborator Collaborator @relation(fields: [collaboratorId], references: [id])
 }

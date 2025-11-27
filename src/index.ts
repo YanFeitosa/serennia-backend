@@ -67,7 +67,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   );
   res.header(
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization"
+    "Content-Type,Authorization,x-salon-id"
   );
   res.header("Access-Control-Allow-Credentials", "true");
 

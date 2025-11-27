@@ -36,7 +36,7 @@ categoriesRouter.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     const categories = await prisma.category.findMany({
-      where: { salonId, type },
+      where: { salonId, type, deletedAt: null },
       orderBy: { name: 'asc' },
     });
 
@@ -107,7 +107,7 @@ categoriesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const existing = await prisma.category.findFirst({
-      where: { id: req.params.id, salonId },
+      where: { id: req.params.id, salonId, deletedAt: null },
     });
 
     if (!existing) {
@@ -156,9 +156,11 @@ categoriesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
         }
       }
 
+      // Soft delete
       tx.push(
-        prisma.category.delete({
+        prisma.category.update({
           where: { id: existing.id },
+          data: { isActive: false, deletedAt: new Date() },
         })
       );
 

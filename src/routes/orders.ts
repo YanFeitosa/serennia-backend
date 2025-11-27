@@ -157,14 +157,26 @@ ordersRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response
       return;
     }
 
-    const order = await prisma.order.create({
-      data: {
-        salonId,
-        clientId,
-        status: 'open',
-        finalValue: 0,
-      },
-      include: { items: { where: { deletedAt: null } }, appointment: true },
+    // Use transaction to create order and update client's lastVisit atomically
+    const order = await prisma.$transaction(async (tx) => {
+      // Create the order
+      const newOrder = await tx.order.create({
+        data: {
+          salonId,
+          clientId,
+          status: 'open',
+          finalValue: 0,
+        },
+        include: { items: { where: { deletedAt: null } }, appointment: true },
+      });
+
+      // Update client's lastVisit to current date
+      await tx.client.update({
+        where: { id: clientId },
+        data: { lastVisit: new Date() },
+      });
+
+      return newOrder;
     });
 
     res.status(201).json(mapOrder(order));

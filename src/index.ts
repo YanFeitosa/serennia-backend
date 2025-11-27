@@ -95,7 +95,10 @@ app.use("/expenses", apiRateLimiter, authMiddleware, expensesRouter);
 app.use("/payments", paymentsRouter);
 app.use("/commissions", apiRateLimiter, authMiddleware, commissionsRouter);
 
+// Health check - public endpoint accessible from any origin (for load balancers, monitoring, etc.)
 app.get("/health", async (_req: Request, res: Response) => {
+  // Allow any origin for health checks
+  res.header("Access-Control-Allow-Origin", "*");
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: "ok", database: "up" });

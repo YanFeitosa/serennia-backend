@@ -105,87 +105,78 @@ export const supabaseAuthMiddleware = async (
     }
 
     // Get user metadata
-    const salonId = user.user_metadata?.salonId || null;
-    const platformRole = user.user_metadata?.platformRole as 'super_admin' | 'tenant_admin' | null;
-    const role = user.user_metadata?.role;
+    const metadataSalonId = user.user_metadata?.salonId || null;
+    const metadataPlatformRole = user.user_metadata?.platformRole as 'super_admin' | 'tenant_admin' | null;
 
-    // Debug log for super admin context switching
+    // Check for x-salon-id header for context switching (Super Admin only)
     const contextSalonId = req.headers['x-salon-id'] as string;
-    console.log('[Auth Debug]', {
-      email: user.email,
-      platformRole,
-      metadataSalonId: salonId,
-      contextSalonId,
-      hasContextHeader: !!contextSalonId,
+
+    // First, try to find user in database to get their actual platformRole
+    // This is more reliable than metadata which might be out of sync
+    let dbUser = await prisma.user.findFirst({
+      where: {
+        email: user.email,
+      },
+      select: {
+        id: true,
+        salonId: true,
+        platformRole: true,
+        tenantRole: true,
+      },
     });
 
-    // Find user in our database
-    let dbUser;
-
-    if (platformRole === 'super_admin') {
-      // SuperAdmin doesn't need salonId by default, but can impersonate/context switch
-      dbUser = await prisma.user.findFirst({
-        where: {
-          email: user.email,
-          platformRole: 'super_admin',
-        },
-        select: {
-          id: true,
-          salonId: true,
-          platformRole: true,
-          tenantRole: true,
-        },
-      });
-
-      // If context switching is requested
-      if (dbUser && contextSalonId) {
-        // Verify if salon exists (optional but recommended)
-        const salonExists = await prisma.salon.findUnique({
-          where: { id: contextSalonId }
-        });
-
-        if (salonExists) {
-          // Override salonId for this request context
-          dbUser.salonId = contextSalonId;
-        }
-      }
-    } else {
-      // Tenant Admin and Tenant Users need salonId
-      if (!salonId) {
-        res.status(401).json({ error: 'Usuário não possui salonId configurado' });
-        return;
-      }
-
-      dbUser = await prisma.user.findFirst({
-        where: {
-          email: user.email,
-          salonId: salonId,
-        },
-        select: {
-          id: true,
-          salonId: true,
-          platformRole: true,
-          tenantRole: true,
-        },
-      });
-    }
+    // Debug log
+    console.log('[Auth Debug]', {
+      email: user.email,
+      metadataPlatformRole,
+      dbPlatformRole: dbUser?.platformRole,
+      metadataSalonId,
+      dbSalonId: dbUser?.salonId,
+      contextSalonId,
+    });
 
     if (!dbUser) {
       res.status(401).json({ error: 'Usuário não encontrado no banco de dados' });
       return;
     }
 
+    // Use database platformRole as source of truth, fallback to metadata
+    const platformRole = dbUser.platformRole || metadataPlatformRole;
+
+    // Handle Super Admin context switching
+    if (platformRole === 'super_admin') {
+      // If context switching is requested via header
+      if (contextSalonId) {
+        const salonExists = await prisma.salon.findUnique({
+          where: { id: contextSalonId }
+        });
+
+        if (salonExists) {
+          // Override salonId for this request context
+          dbUser = { ...dbUser, salonId: contextSalonId };
+        }
+      }
+    } else {
+      // Non-super_admin users must have a salonId
+      const effectiveSalonId = dbUser.salonId || metadataSalonId;
+      if (!effectiveSalonId) {
+        res.status(401).json({ error: 'Usuário não possui salonId configurado' });
+        return;
+      }
+      dbUser = { ...dbUser, salonId: effectiveSalonId };
+    }
+
     // Derive role for backward compatibility
     // tenant_admin and super_admin should be treated as 'admin' for legacy code
     const derivedRole = dbUser.tenantRole || 
-      (dbUser.platformRole === 'tenant_admin' ? 'admin' : 
-       dbUser.platformRole === 'super_admin' ? 'super_admin' : 
-       dbUser.platformRole || 'admin');
+      (platformRole === 'tenant_admin' ? 'admin' : 
+       platformRole === 'super_admin' ? 'super_admin' : 
+       platformRole || 'admin');
 
     req.user = {
       userId: dbUser.id,
       salonId: dbUser.salonId,
-      platformRole: dbUser.platformRole,
+      platformRole: platformRole,
       tenantRole: dbUser.tenantRole,
       role: derivedRole, // Legacy compatibility field
       supabaseUserId: user.id,

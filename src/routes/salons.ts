@@ -115,4 +115,49 @@ salonsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// POST /salons/:id/select - Select a salon to manage (Super Admin only)
+salonsRouter.post('/:id/select', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    // Only super_admin can switch salons
+    if (req.user.platformRole !== 'super_admin') {
+      res.status(403).json({ error: 'Acesso negado. Apenas Super Admin pode trocar de salão.' });
+      return;
+    }
+
+    const salonId = req.params.id;
+
+    // Verify salon exists
+    const salon = await prisma.salon.findUnique({
+      where: { id: salonId },
+      select: { id: true, name: true },
+    });
+
+    if (!salon) {
+      res.status(404).json({ error: 'Salão não encontrado' });
+      return;
+    }
+
+    // Update the super_admin's salonId
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { salonId: salonId },
+    });
+
+    res.json({ 
+      success: true, 
+      message: `Salão "${salon.name}" selecionado com sucesso`,
+      salonId: salon.id,
+      salonName: salon.name,
+    });
+  } catch (error) {
+    console.error('Error selecting salon', error);
+    res.status(500).json({ error: 'Failed to select salon' });
+  }
+});
+
 export { salonsRouter };

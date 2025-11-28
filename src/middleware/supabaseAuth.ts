@@ -108,12 +108,9 @@ export const supabaseAuthMiddleware = async (
     const metadataSalonId = user.user_metadata?.salonId || null;
     const metadataPlatformRole = user.user_metadata?.platformRole as 'super_admin' | 'tenant_admin' | null;
 
-    // Check for x-salon-id header for context switching (Super Admin only)
-    const contextSalonId = req.headers['x-salon-id'] as string;
-
-    // First, try to find user in database to get their actual platformRole
+    // Find user in database to get their actual platformRole and salonId
     // This is more reliable than metadata which might be out of sync
-    let dbUser = await prisma.user.findFirst({
+    const dbUser = await prisma.user.findFirst({
       where: {
         email: user.email,
       },
@@ -132,7 +129,6 @@ export const supabaseAuthMiddleware = async (
       dbPlatformRole: dbUser?.platformRole,
       metadataSalonId,
       dbSalonId: dbUser?.salonId,
-      contextSalonId,
     });
 
     if (!dbUser) {
@@ -140,30 +136,14 @@ export const supabaseAuthMiddleware = async (
       return;
     }
 
-    // Use database platformRole as source of truth, fallback to metadata
+    // Use database as source of truth
     const platformRole = dbUser.platformRole || metadataPlatformRole;
+    const effectiveSalonId = dbUser.salonId || metadataSalonId;
 
-    // Handle Super Admin context switching
-    if (platformRole === 'super_admin') {
-      // If context switching is requested via header
-      if (contextSalonId) {
-        const salonExists = await prisma.salon.findUnique({
-          where: { id: contextSalonId }
-        });
-
-        if (salonExists) {
-          // Override salonId for this request context
-          dbUser = { ...dbUser, salonId: contextSalonId };
-        }
-      }
-    } else {
-      // Non-super_admin users must have a salonId
-      const effectiveSalonId = dbUser.salonId || metadataSalonId;
-      if (!effectiveSalonId) {
-        res.status(401).json({ error: 'Usuário não possui salonId configurado' });
-        return;
-      }
-      dbUser = { ...dbUser, salonId: effectiveSalonId };
+    // Non-super_admin users must have a salonId
+    if (platformRole !== 'super_admin' && !effectiveSalonId) {
+      res.status(401).json({ error: 'Usuário não possui salonId configurado' });
+      return;
     }
 
     // Derive role for backward compatibility
@@ -175,7 +155,7 @@ export const supabaseAuthMiddleware = async (
 
     req.user = {
       userId: dbUser.id,
-      salonId: dbUser.salonId,
+      salonId: effectiveSalonId,
       platformRole: platformRole,
       tenantRole: dbUser.tenantRole,
       role: derivedRole, // Legacy compatibility field

@@ -115,11 +115,6 @@ ordersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
 
     const salonId = req.user.salonId;
 
-    if (!salonId) {
-      res.status(400).json({ error: 'Salon context required. Please select a salon.' });
-      return;
-    }
-
     const order = await prisma.order.findFirst({
       where: { id: req.params.id, salonId },
       include: { items: { where: { deletedAt: null } }, appointment: true },

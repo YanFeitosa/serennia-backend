@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 // Rate limiter for login endpoint (stricter)
 export const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 requests per windowMs
+  max: 10, // 10 requests per windowMs
   message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -17,28 +17,28 @@ export const loginRateLimiter = rateLimit({
 
 // Rate limiter for general API endpoints
 export const apiRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // 200 requests per windowMs (aumentado para evitar muitos erros)
-  message: 'Muitas requisições. Tente novamente mais tarde.',
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // 100 requests per minute (much more generous)
+  message: 'Muitas requisições. Tente novamente em alguns segundos.',
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req: Request, res: Response) => {
     res.status(429).json({
-      error: 'Muitas requisições. Tente novamente mais tarde.',
+      error: 'Muitas requisições. Tente novamente em alguns segundos.',
     });
   },
 });
 
 // Rate limiter for creation endpoints (POST)
 export const createRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // 50 creation requests per windowMs
-  message: 'Muitas requisições de criação. Tente novamente mais tarde.',
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 30, // 30 creation requests per minute
+  message: 'Muitas requisições de criação. Tente novamente em alguns segundos.',
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req: Request, res: Response) => {
     res.status(429).json({
-      error: 'Muitas requisições de criação. Tente novamente mais tarde.',
+      error: 'Muitas requisições de criação. Tente novamente em alguns segundos.',
     });
   },
 });

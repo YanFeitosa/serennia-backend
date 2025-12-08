@@ -32,8 +32,9 @@ const errorHandler_1 = require("./middleware/errorHandler");
 const rateLimiter_1 = require("./middleware/rateLimiter");
 const app = (0, express_1.default)();
 // Parse multiple CORS origins from environment variable (comma-separated)
+// Remove trailing slashes for consistent matching
 const CORS_ORIGINS = process.env.FRONTEND_ORIGIN
-    ? process.env.FRONTEND_ORIGIN.split(',').map(origin => origin.trim())
+    ? process.env.FRONTEND_ORIGIN.split(',').map(origin => origin.trim().replace(/\/+$/, ''))
     : [];
 if (CORS_ORIGINS.length === 0) {
     console.warn("WARNING: FRONTEND_ORIGIN not set. CORS will be disabled.");
@@ -43,8 +44,8 @@ else {
 }
 app.use(express_1.default.json());
 app.use((req, res, next) => {
-    // CORS configuration
-    const origin = req.headers.origin;
+    // CORS configuration - normalize origin by removing trailing slash
+    const origin = req.headers.origin?.replace(/\/+$/, '');
     // Check if request origin is in allowed origins
     if (origin && CORS_ORIGINS.includes(origin)) {
         res.header("Access-Control-Allow-Origin", origin);

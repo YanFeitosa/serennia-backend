@@ -5,6 +5,7 @@ const express_1 = require("express");
 const prismaClient_1 = require("../prismaClient");
 const validation_1 = require("../utils/validation");
 const rateLimiter_1 = require("../middleware/rateLimiter");
+const audit_1 = require("../services/audit");
 function mapCategory(c) {
     return {
         id: c.id,
@@ -32,7 +33,7 @@ categoriesRouter.get('/', async (req, res) => {
             return;
         }
         const categories = await prismaClient_1.prisma.category.findMany({
-            where: { salonId, type },
+            where: { salonId, type, deletedAt: null },
             orderBy: { name: 'asc' },
         });
         res.json(categories.map(mapCategory));
@@ -70,6 +71,9 @@ categoriesRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) => 
                 name: sanitizedName,
             },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logCreate(salonId, req.user.userId, 'categories', category.id, { name: category.name, type: category.type }, ipAddress, userAgent);
         res.status(201).json(mapCategory(category));
     }
     catch (error) {
@@ -91,7 +95,7 @@ categoriesRouter.delete('/:id', async (req, res) => {
         }
         const salonId = req.user.salonId;
         const existing = await prismaClient_1.prisma.category.findFirst({
-            where: { id: req.params.id, salonId },
+            where: { id: req.params.id, salonId, deletedAt: null },
         });
         if (!existing) {
             res.status(404).json({ error: 'Category not found' });
@@ -124,10 +128,15 @@ categoriesRouter.delete('/:id', async (req, res) => {
                     }));
                 }
             }
-            tx.push(prismaClient_1.prisma.category.delete({
+            // Soft delete
+            tx.push(prismaClient_1.prisma.category.update({
                 where: { id: existing.id },
+                data: { isActive: false, deletedAt: new Date() },
             }));
             await prismaClient_1.prisma.$transaction(tx);
+            // Log de auditoria
+            const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+            await audit_1.AuditService.logDelete(salonId, req.user.userId, 'categories', existing.id, { name: existing.name, type: existing.type }, ipAddress, userAgent);
         }
         catch (error) {
             if (error && error.code === 'P2003') {

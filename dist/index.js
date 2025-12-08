@@ -26,6 +26,7 @@ const totem_1 = require("./routes/totem");
 const expenses_1 = require("./routes/expenses");
 const payments_1 = require("./routes/payments");
 const commissions_1 = require("./routes/commissions");
+const salons_1 = require("./routes/salons");
 const auth_2 = require("./middleware/auth");
 const errorHandler_1 = require("./middleware/errorHandler");
 const rateLimiter_1 = require("./middleware/rateLimiter");
@@ -48,7 +49,7 @@ app.use((req, res, next) => {
         console.warn(`⚠️ CORS: Allowing origin ${origin} (development mode)`);
     }
     res.header("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
+    res.header("Access-Control-Allow-Headers", "Content-Type,Authorization,x-salon-id");
     res.header("Access-Control-Allow-Credentials", "true");
     if (req.method === "OPTIONS") {
         res.sendStatus(204);
@@ -72,7 +73,11 @@ app.use("/totem", totem_1.totemRouter);
 app.use("/expenses", rateLimiter_1.apiRateLimiter, auth_2.authMiddleware, expenses_1.expensesRouter);
 app.use("/payments", payments_1.paymentsRouter);
 app.use("/commissions", rateLimiter_1.apiRateLimiter, auth_2.authMiddleware, commissions_1.commissionsRouter);
+app.use("/salons", rateLimiter_1.apiRateLimiter, auth_2.authMiddleware, salons_1.salonsRouter);
+// Health check - public endpoint accessible from any origin (for load balancers, monitoring, etc.)
 app.get("/health", async (_req, res) => {
+    // Allow any origin for health checks
+    res.header("Access-Control-Allow-Origin", "*");
     try {
         await prismaClient_1.prisma.$queryRaw `SELECT 1`;
         res.json({ status: "ok", database: "up" });

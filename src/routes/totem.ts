@@ -28,10 +28,16 @@ totemRouter.post('/client/login', async (req: Request, res: Response) => {
     // Limpar telefone (remover caracteres não numéricos)
     const cleanedPhone = phone.replace(/\D/g, '');
 
+    // Validar comprimento mínimo do telefone para evitar matches incorretos
+    if (cleanedPhone.length < 10) {
+      res.status(400).json({ error: 'Número de telefone inválido. Informe o número completo com DDD.' });
+      return;
+    }
+
     const client = await prisma.client.findFirst({
       where: {
         salonId,
-        phone: { contains: cleanedPhone },
+        phone: cleanedPhone, // Match exato em vez de contains
         isActive: true,
       },
     });
@@ -72,11 +78,17 @@ totemRouter.post('/client/register', async (req: Request, res: Response) => {
     // Limpar telefone
     const cleanedPhone = phone.replace(/\D/g, '');
 
+    // Validar comprimento mínimo do telefone
+    if (cleanedPhone.length < 10) {
+      res.status(400).json({ error: 'Número de telefone inválido. Informe o número completo com DDD.' });
+      return;
+    }
+
     // Verificar se já existe
     const existing = await prisma.client.findFirst({
       where: {
         salonId,
-        phone: { contains: cleanedPhone },
+        phone: cleanedPhone, // Match exato
       },
     });
 

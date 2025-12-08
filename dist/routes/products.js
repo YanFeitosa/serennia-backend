@@ -3,8 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.productsRouter = void 0;
 const express_1 = require("express");
 const prismaClient_1 = require("../prismaClient");
+const supabaseAuth_1 = require("../middleware/supabaseAuth");
 const validation_1 = require("../utils/validation");
 const rateLimiter_1 = require("../middleware/rateLimiter");
+const audit_1 = require("../services/audit");
 function mapProduct(p) {
     return {
         id: p.id,
@@ -15,7 +17,6 @@ function mapProduct(p) {
         price: Number(p.price),
         costPrice: p.costPrice != null ? Number(p.costPrice) : undefined,
         stock: p.stock,
-        isActive: p.isActive,
         createdAt: p.createdAt.toISOString(),
         updatedAt: p.updatedAt.toISOString(),
     };
@@ -30,7 +31,7 @@ productsRouter.get('/', async (req, res) => {
         }
         const salonId = req.user.salonId;
         const products = await prismaClient_1.prisma.product.findMany({
-            where: { salonId, isActive: true },
+            where: { salonId, isActive: true, deletedAt: null },
             orderBy: { createdAt: 'desc' },
             include: { category: true },
         });
@@ -49,7 +50,7 @@ productsRouter.get('/:id', async (req, res) => {
         }
         const salonId = req.user.salonId;
         const product = await prismaClient_1.prisma.product.findFirst({
-            where: { id: req.params.id, salonId, isActive: true },
+            where: { id: req.params.id, salonId, isActive: true, deletedAt: null },
             include: { category: true },
         });
         if (!product) {
@@ -123,6 +124,9 @@ productsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) => {
             },
             include: { category: true },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logCreate(salonId, req.user.userId, 'products', product.id, { name: product.name, category: product.category?.name, price: Number(product.price), stock: product.stock }, ipAddress, userAgent);
         res.status(201).json(mapProduct(product));
     }
     catch (error) {
@@ -217,6 +221,9 @@ productsRouter.patch('/:id', async (req, res) => {
             data,
             include: { category: true },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logUpdate(salonId, req.user.userId, 'products', updated.id, { name: existing.name, price: Number(existing.price), stock: existing.stock }, { name: updated.name, price: Number(updated.price), stock: updated.stock }, ipAddress, userAgent);
         res.json(mapProduct(updated));
     }
     catch (error) {
@@ -230,9 +237,15 @@ productsRouter.delete('/:id', async (req, res) => {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
+        // Check permission to delete products
+        const canDelete = await (0, supabaseAuth_1.hasPermission)(req.user, 'podeDeletarProduto');
+        if (!canDelete) {
+            res.status(403).json({ error: 'Você não tem permissão para excluir produtos' });
+            return;
+        }
         const salonId = req.user.salonId;
         const existing = await prismaClient_1.prisma.product.findFirst({
-            where: { id: req.params.id, salonId },
+            where: { id: req.params.id, salonId, deletedAt: null },
         });
         if (!existing) {
             res.status(404).json({ error: 'Product not found' });
@@ -240,8 +253,11 @@ productsRouter.delete('/:id', async (req, res) => {
         }
         await prismaClient_1.prisma.product.update({
             where: { id: existing.id },
-            data: { isActive: false },
+            data: { deletedAt: new Date() },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logDelete(salonId, req.user.userId, 'products', existing.id, { name: existing.name, price: Number(existing.price), stock: existing.stock }, ipAddress, userAgent);
         res.status(204).send();
     }
     catch (error) {

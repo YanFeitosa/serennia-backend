@@ -6,6 +6,7 @@ const express_1 = require("express");
 const prismaClient_1 = require("../prismaClient");
 const whatsapp_1 = require("../services/whatsapp");
 const rateLimiter_1 = require("../middleware/rateLimiter");
+const audit_1 = require("../services/audit");
 function mapAppointment(a) {
     return {
         id: a.id,
@@ -305,6 +306,15 @@ appointmentsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) =
         catch (error) {
             console.error('Failed to send confirmation message (non-blocking)', error);
         }
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logCreate(salonId, req.user.userId, 'appointments', appointment.id, {
+            clientId: appointment.clientId,
+            collaboratorId: appointment.collaboratorId,
+            start: appointment.start.toISOString(),
+            status: appointment.status,
+            origin: appointment.origin
+        }, ipAddress, userAgent);
         res.status(201).json(mapAppointment(appointment));
     }
     catch (error) {
@@ -392,6 +402,19 @@ appointmentsRouter.patch('/:id', async (req, res) => {
             });
             return updatedAppointment;
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logUpdate(salonId, req.user.userId, 'appointments', updated.id, {
+            clientId: existing.clientId,
+            collaboratorId: existing.collaboratorId,
+            start: existing.start.toISOString(),
+            status: existing.status
+        }, {
+            clientId: updated.clientId,
+            collaboratorId: updated.collaboratorId,
+            start: updated.start.toISOString(),
+            status: updated.status
+        }, ipAddress, userAgent);
         res.json(mapAppointment(updated));
     }
     catch (error) {
@@ -432,6 +455,9 @@ appointmentsRouter.post('/:id/status', async (req, res) => {
             data: { status },
             include: { services: true },
         });
+        // Log de auditoria para mudança de status
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logUpdate(salonId, req.user.userId, 'appointments', updated.id, { status: currentStatus }, { status: updated.status }, ipAddress, userAgent);
         res.json(mapAppointment(updated));
     }
     catch (error) {

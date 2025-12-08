@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { CategoryType } from '../types/enums';
 import { sanitizeString } from '../utils/validation';
 import { createRateLimiter } from '../middleware/rateLimiter';
+import { AuditService } from '../services/audit';
 
 function mapCategory(c: any) {
   return {
@@ -83,6 +84,18 @@ categoriesRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Resp
         name: sanitizedName,
       },
     });
+
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logCreate(
+      salonId,
+      req.user.userId,
+      'categories',
+      category.id,
+      { name: category.name, type: category.type },
+      ipAddress,
+      userAgent
+    );
 
     res.status(201).json(mapCategory(category));
   } catch (error: any) {
@@ -165,6 +178,18 @@ categoriesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       );
 
       await prisma.$transaction(tx);
+
+      // Log de auditoria
+      const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+      await AuditService.logDelete(
+        salonId,
+        req.user.userId,
+        'categories',
+        existing.id,
+        { name: existing.name, type: existing.type },
+        ipAddress,
+        userAgent
+      );
     } catch (error: any) {
       if (error && error.code === 'P2003') {
         res.status(409).json({

@@ -8,6 +8,7 @@ const validation_1 = require("../utils/validation");
 const rateLimiter_1 = require("../middleware/rateLimiter");
 const supabase_1 = require("../lib/supabase");
 const email_1 = require("../lib/email");
+const audit_1 = require("../services/audit");
 function mapCollaborator(c) {
     return {
         id: c.id,
@@ -120,6 +121,35 @@ collaboratorsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) 
             return;
         }
         const salonId = req.user.salonId;
+        // Check if phone already exists in salon (if provided)
+        if (phone) {
+            const existingByPhone = await prismaClient_1.prisma.collaborator.findFirst({
+                where: { salonId, phone: (0, validation_1.sanitizePhone)(phone), deletedAt: null },
+            });
+            if (existingByPhone) {
+                res.status(409).json({ error: 'Já existe um colaborador com este telefone' });
+                return;
+            }
+        }
+        // Check if email already exists in salon (if provided)
+        if (email) {
+            const existingByEmail = await prismaClient_1.prisma.collaborator.findFirst({
+                where: { salonId, email: (0, validation_1.sanitizeString)(email).toLowerCase(), deletedAt: null },
+            });
+            if (existingByEmail) {
+                res.status(409).json({ error: 'Já existe um colaborador com este email' });
+                return;
+            }
+        }
+        // Check if CPF already exists in salon
+        const cleanedCPFCheck = cpf.replace(/\D/g, '');
+        const existingByCPF = await prismaClient_1.prisma.collaborator.findFirst({
+            where: { salonId, cpf: cleanedCPFCheck, deletedAt: null },
+        });
+        if (existingByCPF) {
+            res.status(409).json({ error: 'Já existe um colaborador com este CPF' });
+            return;
+        }
         // Get salon name for email
         const salon = await prismaClient_1.prisma.salon.findUnique({
             where: { id: salonId },
@@ -222,6 +252,9 @@ collaboratorsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) 
                 serviceCategories: serviceCategories ?? [],
             },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logCreate(salonId, req.user.userId, 'collaborators', collaborator.id, { name: collaborator.name, role: collaborator.role, email: collaborator.email, phone: collaborator.phone }, ipAddress, userAgent);
         res.status(201).json(mapCollaborator(collaborator));
     }
     catch (error) {
@@ -297,21 +330,54 @@ collaboratorsRouter.patch('/:id', async (req, res) => {
                 res.status(400).json({ error: 'Invalid phone number format' });
                 return;
             }
-            data.phone = phone ? (0, validation_1.sanitizePhone)(phone) : null;
+            const sanitizedPhone = phone ? (0, validation_1.sanitizePhone)(phone) : null;
+            // Check if phone already exists for another collaborator in salon
+            if (sanitizedPhone) {
+                const existingByPhone = await prismaClient_1.prisma.collaborator.findFirst({
+                    where: { salonId, phone: sanitizedPhone, deletedAt: null, id: { not: existing.id } },
+                });
+                if (existingByPhone) {
+                    res.status(409).json({ error: 'Já existe um colaborador com este telefone' });
+                    return;
+                }
+            }
+            data.phone = sanitizedPhone;
         }
         if (email !== undefined) {
             if (email && !(0, validation_1.validateEmail)(email)) {
                 res.status(400).json({ error: 'Invalid email format' });
                 return;
             }
-            data.email = email ? (0, validation_1.sanitizeString)(email) : null;
+            const sanitizedEmail = email ? (0, validation_1.sanitizeString)(email).toLowerCase() : null;
+            // Check if email already exists for another collaborator in salon
+            if (sanitizedEmail) {
+                const existingByEmail = await prismaClient_1.prisma.collaborator.findFirst({
+                    where: { salonId, email: sanitizedEmail, deletedAt: null, id: { not: existing.id } },
+                });
+                if (existingByEmail) {
+                    res.status(409).json({ error: 'Já existe um colaborador com este email' });
+                    return;
+                }
+            }
+            data.email = sanitizedEmail;
         }
         if (cpf !== undefined) {
             if (cpf && !validateCPF(cpf)) {
                 res.status(400).json({ error: 'Invalid CPF format' });
                 return;
             }
-            data.cpf = cpf ? cpf.replace(/\D/g, '') : null;
+            const cleanedCPF = cpf ? cpf.replace(/\D/g, '') : null;
+            // Check if CPF already exists for another collaborator in salon
+            if (cleanedCPF) {
+                const existingByCPF = await prismaClient_1.prisma.collaborator.findFirst({
+                    where: { salonId, cpf: cleanedCPF, deletedAt: null, id: { not: existing.id } },
+                });
+                if (existingByCPF) {
+                    res.status(409).json({ error: 'Já existe um colaborador com este CPF' });
+                    return;
+                }
+            }
+            data.cpf = cleanedCPF;
         }
         if (avatarUrl !== undefined) {
             data.avatarUrl = avatarUrl ? (0, validation_1.sanitizeString)(avatarUrl) : null;
@@ -329,6 +395,9 @@ collaboratorsRouter.patch('/:id', async (req, res) => {
             where: { id: existing.id },
             data,
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logUpdate(salonId, req.user.userId, 'collaborators', updated.id, { name: existing.name, role: existing.role, status: existing.status, email: existing.email, phone: existing.phone, commissionRate: Number(existing.commissionRate) }, { name: updated.name, role: updated.role, status: updated.status, email: updated.email, phone: updated.phone, commissionRate: Number(updated.commissionRate) }, ipAddress, userAgent);
         res.json(mapCollaborator(updated));
     }
     catch (error) {
@@ -348,9 +417,15 @@ collaboratorsRouter.delete('/:id', async (req, res) => {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
+        // Check permission to delete collaborators
+        const canDelete = await (0, supabaseAuth_1.hasPermission)(req.user, 'podeDeletarColaborador');
+        if (!canDelete) {
+            res.status(403).json({ error: 'Você não tem permissão para excluir colaboradores' });
+            return;
+        }
         const salonId = req.user.salonId;
         const existing = await prismaClient_1.prisma.collaborator.findFirst({
-            where: { id: req.params.id, salonId },
+            where: { id: req.params.id, salonId, deletedAt: null },
         });
         if (!existing) {
             res.status(404).json({ error: 'Collaborator not found' });
@@ -358,8 +433,11 @@ collaboratorsRouter.delete('/:id', async (req, res) => {
         }
         await prismaClient_1.prisma.collaborator.update({
             where: { id: existing.id },
-            data: { status: 'inactive' },
+            data: { status: 'inactive', deletedAt: new Date() },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logDelete(salonId, req.user.userId, 'collaborators', existing.id, { name: existing.name, role: existing.role, email: existing.email, phone: existing.phone }, ipAddress, userAgent);
         res.status(204).send();
     }
     catch (error) {

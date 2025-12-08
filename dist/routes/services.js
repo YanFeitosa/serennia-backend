@@ -3,8 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.servicesRouter = void 0;
 const express_1 = require("express");
 const prismaClient_1 = require("../prismaClient");
+const supabaseAuth_1 = require("../middleware/supabaseAuth");
 const validation_1 = require("../utils/validation");
 const rateLimiter_1 = require("../middleware/rateLimiter");
+const audit_1 = require("../services/audit");
 function mapService(s) {
     return {
         id: s.id,
@@ -30,7 +32,7 @@ servicesRouter.get('/', async (req, res) => {
         }
         const salonId = req.user.salonId;
         const services = await prismaClient_1.prisma.service.findMany({
-            where: { salonId, isActive: true },
+            where: { salonId, isActive: true, deletedAt: null },
             orderBy: { createdAt: 'desc' },
             include: { category: true },
         });
@@ -49,7 +51,7 @@ servicesRouter.get('/:id', async (req, res) => {
         }
         const salonId = req.user.salonId;
         const service = await prismaClient_1.prisma.service.findFirst({
-            where: { id: req.params.id, salonId, isActive: true },
+            where: { id: req.params.id, salonId, isActive: true, deletedAt: null },
             include: { category: true },
         });
         if (!service) {
@@ -134,6 +136,9 @@ servicesRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) => {
             },
             include: { category: true },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logCreate(salonId, req.user.userId, 'services', service.id, { name: service.name, category: service.category?.name, price: Number(service.price), duration: service.duration }, ipAddress, userAgent);
         res.status(201).json(mapService(service));
     }
     catch (error) {
@@ -228,6 +233,9 @@ servicesRouter.patch('/:id', async (req, res) => {
             data,
             include: { category: true },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logUpdate(salonId, req.user.userId, 'services', updated.id, { name: existing.name, price: Number(existing.price), duration: existing.duration, isActive: existing.isActive }, { name: updated.name, price: Number(updated.price), duration: updated.duration, isActive: updated.isActive }, ipAddress, userAgent);
         res.json(mapService(updated));
     }
     catch (error) {
@@ -241,9 +249,15 @@ servicesRouter.delete('/:id', async (req, res) => {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
+        // Check permission to delete services
+        const canDelete = await (0, supabaseAuth_1.hasPermission)(req.user, 'podeDeletarServico');
+        if (!canDelete) {
+            res.status(403).json({ error: 'Você não tem permissão para excluir serviços' });
+            return;
+        }
         const salonId = req.user.salonId;
         const existing = await prismaClient_1.prisma.service.findFirst({
-            where: { id: req.params.id, salonId },
+            where: { id: req.params.id, salonId, deletedAt: null },
         });
         if (!existing) {
             res.status(404).json({ error: 'Service not found' });
@@ -251,8 +265,11 @@ servicesRouter.delete('/:id', async (req, res) => {
         }
         await prismaClient_1.prisma.service.update({
             where: { id: existing.id },
-            data: { isActive: false },
+            data: { isActive: false, deletedAt: new Date() },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logDelete(salonId, req.user.userId, 'services', existing.id, { name: existing.name, price: Number(existing.price), duration: existing.duration }, ipAddress, userAgent);
         res.status(204).send();
     }
     catch (error) {

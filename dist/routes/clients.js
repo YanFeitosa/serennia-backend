@@ -3,8 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.clientsRouter = void 0;
 const express_1 = require("express");
 const prismaClient_1 = require("../prismaClient");
+const supabaseAuth_1 = require("../middleware/supabaseAuth");
 const validation_1 = require("../utils/validation");
 const rateLimiter_1 = require("../middleware/rateLimiter");
+const audit_1 = require("../services/audit");
 function mapClient(c) {
     return {
         id: c.id,
@@ -27,7 +29,7 @@ clientsRouter.get('/', async (req, res) => {
         }
         const salonId = req.user.salonId;
         const clients = await prismaClient_1.prisma.client.findMany({
-            where: { salonId, isActive: true },
+            where: { salonId, isActive: true, deletedAt: null },
             orderBy: { createdAt: 'desc' },
         });
         res.json(clients.map(mapClient));
@@ -68,6 +70,24 @@ clientsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) => {
             sanitizedEmail = (0, validation_1.sanitizeString)(email);
         }
         const salonId = req.user.salonId;
+        // Check if phone already exists in salon
+        const existingByPhone = await prismaClient_1.prisma.client.findFirst({
+            where: { salonId, phone: sanitizedPhone, deletedAt: null },
+        });
+        if (existingByPhone) {
+            res.status(409).json({ error: 'Já existe um cliente com este telefone' });
+            return;
+        }
+        // Check if email already exists in salon (if provided)
+        if (sanitizedEmail) {
+            const existingByEmail = await prismaClient_1.prisma.client.findFirst({
+                where: { salonId, email: sanitizedEmail, deletedAt: null },
+            });
+            if (existingByEmail) {
+                res.status(409).json({ error: 'Já existe um cliente com este email' });
+                return;
+            }
+        }
         const client = await prismaClient_1.prisma.client.create({
             data: {
                 salonId,
@@ -76,6 +96,9 @@ clientsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) => {
                 email: sanitizedEmail,
             },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logCreate(salonId, req.user.userId, 'clients', client.id, { name: client.name, phone: client.phone, email: client.email }, ipAddress, userAgent);
         res.status(201).json(mapClient(client));
     }
     catch (error) {
@@ -137,14 +160,34 @@ clientsRouter.patch('/:id', async (req, res) => {
                 res.status(400).json({ error: 'Invalid phone number format' });
                 return;
             }
-            data.phone = (0, validation_1.sanitizePhone)(phone);
+            const sanitizedPhone = (0, validation_1.sanitizePhone)(phone);
+            // Check if phone already exists for another client in salon
+            const existingByPhone = await prismaClient_1.prisma.client.findFirst({
+                where: { salonId, phone: sanitizedPhone, deletedAt: null, id: { not: existing.id } },
+            });
+            if (existingByPhone) {
+                res.status(409).json({ error: 'Já existe um cliente com este telefone' });
+                return;
+            }
+            data.phone = sanitizedPhone;
         }
         if (email !== undefined) {
             if (email && !(0, validation_1.validateEmail)(email)) {
                 res.status(400).json({ error: 'Invalid email format' });
                 return;
             }
-            data.email = email ? (0, validation_1.sanitizeString)(email) : null;
+            const sanitizedEmail = email ? (0, validation_1.sanitizeString)(email) : null;
+            // Check if email already exists for another client in salon
+            if (sanitizedEmail) {
+                const existingByEmail = await prismaClient_1.prisma.client.findFirst({
+                    where: { salonId, email: sanitizedEmail, deletedAt: null, id: { not: existing.id } },
+                });
+                if (existingByEmail) {
+                    res.status(409).json({ error: 'Já existe um cliente com este email' });
+                    return;
+                }
+            }
+            data.email = sanitizedEmail;
         }
         if (lastVisit !== undefined) {
             data.lastVisit = lastVisit ? new Date(lastVisit) : null;
@@ -153,6 +196,9 @@ clientsRouter.patch('/:id', async (req, res) => {
             where: { id: existing.id },
             data,
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logUpdate(salonId, req.user.userId, 'clients', updated.id, { name: existing.name, phone: existing.phone, email: existing.email, lastVisit: existing.lastVisit }, { name: updated.name, phone: updated.phone, email: updated.email, lastVisit: updated.lastVisit }, ipAddress, userAgent);
         res.json(mapClient(updated));
     }
     catch (error) {
@@ -170,9 +216,15 @@ clientsRouter.delete('/:id', async (req, res) => {
             res.status(401).json({ error: 'Unauthorized' });
             return;
         }
+        // Check permission to delete clients
+        const canDelete = await (0, supabaseAuth_1.hasPermission)(req.user, 'podeDeletarCliente');
+        if (!canDelete) {
+            res.status(403).json({ error: 'Você não tem permissão para excluir clientes' });
+            return;
+        }
         const salonId = req.user.salonId;
         const existing = await prismaClient_1.prisma.client.findFirst({
-            where: { id: req.params.id, salonId },
+            where: { id: req.params.id, salonId, deletedAt: null },
         });
         if (!existing) {
             res.status(404).json({ error: 'Client not found' });
@@ -180,8 +232,11 @@ clientsRouter.delete('/:id', async (req, res) => {
         }
         await prismaClient_1.prisma.client.update({
             where: { id: existing.id },
-            data: { isActive: false },
+            data: { isActive: false, deletedAt: new Date() },
         });
+        // Log de auditoria
+        const { ipAddress, userAgent } = audit_1.AuditService.getRequestInfo(req);
+        await audit_1.AuditService.logDelete(salonId, req.user.userId, 'clients', existing.id, { name: existing.name, phone: existing.phone, email: existing.email }, ipAddress, userAgent);
         res.status(204).send();
     }
     catch (error) {

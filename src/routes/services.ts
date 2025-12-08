@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { hasPermission } from '../middleware/supabaseAuth';
 import { sanitizeString } from '../utils/validation';
 import { createRateLimiter } from '../middleware/rateLimiter';
+import { AuditService } from '../services/audit';
 
 function mapService(s: any) {
   return {
@@ -168,6 +169,18 @@ servicesRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Respon
       include: { category: true },
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logCreate(
+      salonId,
+      req.user.userId,
+      'services',
+      service.id,
+      { name: service.name, category: service.category?.name, price: Number(service.price), duration: service.duration },
+      ipAddress,
+      userAgent
+    );
+
     res.status(201).json(mapService(service));
   } catch (error) {
     console.error('Error creating service', error);
@@ -286,6 +299,19 @@ servicesRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       include: { category: true },
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logUpdate(
+      salonId,
+      req.user.userId,
+      'services',
+      updated.id,
+      { name: existing.name, price: Number(existing.price), duration: existing.duration, isActive: existing.isActive },
+      { name: updated.name, price: Number(updated.price), duration: updated.duration, isActive: updated.isActive },
+      ipAddress,
+      userAgent
+    );
+
     res.json(mapService(updated));
   } catch (error) {
     console.error('Error updating service', error);
@@ -322,6 +348,18 @@ servicesRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: existing.id },
       data: { isActive: false, deletedAt: new Date() },
     });
+
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logDelete(
+      salonId,
+      req.user.userId,
+      'services',
+      existing.id,
+      { name: existing.name, price: Number(existing.price), duration: existing.duration },
+      ipAddress,
+      userAgent
+    );
 
     res.status(204).send();
   } catch (error) {

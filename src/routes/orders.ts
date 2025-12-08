@@ -3,6 +3,7 @@ import { prisma } from '../prismaClient';
 import { AuthRequest } from '../middleware/auth';
 import { OrderStatus, OrderItemType } from '../types/enums';
 import { createRateLimiter } from '../middleware/rateLimiter';
+import { AuditService } from '../services/audit';
 
 function mapOrderItem(item: any) {
   return {
@@ -178,6 +179,18 @@ ordersRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Response
 
       return newOrder;
     });
+
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logCreate(
+      salonId,
+      req.user.userId,
+      'orders',
+      order.id,
+      { clientId: order.clientId, status: order.status },
+      ipAddress,
+      userAgent
+    );
 
     res.status(201).json(mapOrder(order));
   } catch (error) {
@@ -511,6 +524,19 @@ ordersRouter.post('/:id/close', async (req: AuthRequest, res: Response) => {
       include: { items: { where: { deletedAt: null } }, appointment: true },
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logUpdate(
+      salonId,
+      req.user.userId,
+      'orders',
+      updated.id,
+      { status: existing.status },
+      { status: updated.status, finalValue: Number(updated.finalValue) },
+      ipAddress,
+      userAgent
+    );
+
     res.json(mapOrder(updated));
   } catch (error) {
     console.error('Error closing order', error);
@@ -550,6 +576,19 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
       },
       include: { items: { where: { deletedAt: null } }, appointment: true },
     });
+
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logUpdate(
+      salonId,
+      req.user.userId,
+      'orders',
+      updated.id,
+      { status: existing.status },
+      { status: 'paid', finalValue: Number(updated.finalValue) },
+      ipAddress,
+      userAgent
+    );
 
     res.json(mapOrder(updated));
   } catch (error) {

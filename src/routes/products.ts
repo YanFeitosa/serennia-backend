@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { hasPermission } from '../middleware/supabaseAuth';
 import { sanitizeString } from '../utils/validation';
 import { createRateLimiter } from '../middleware/rateLimiter';
+import { AuditService } from '../services/audit';
 
 function mapProduct(p: any) {
   return {
@@ -153,6 +154,18 @@ productsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Respon
       include: { category: true },
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logCreate(
+      salonId,
+      req.user.userId,
+      'products',
+      product.id,
+      { name: product.name, category: product.category?.name, price: Number(product.price), stock: product.stock },
+      ipAddress,
+      userAgent
+    );
+
     res.status(201).json(mapProduct(product));
   } catch (error) {
     console.error('Error creating product', error);
@@ -269,6 +282,19 @@ productsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       include: { category: true },
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logUpdate(
+      salonId,
+      req.user.userId,
+      'products',
+      updated.id,
+      { name: existing.name, price: Number(existing.price), stock: existing.stock },
+      { name: updated.name, price: Number(updated.price), stock: updated.stock },
+      ipAddress,
+      userAgent
+    );
+
     res.json(mapProduct(updated));
   } catch (error) {
     console.error('Error updating product', error);
@@ -305,6 +331,18 @@ productsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: existing.id },
       data: { deletedAt: new Date() },
     });
+
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logDelete(
+      salonId,
+      req.user.userId,
+      'products',
+      existing.id,
+      { name: existing.name, price: Number(existing.price), stock: existing.stock },
+      ipAddress,
+      userAgent
+    );
 
     res.status(204).send();
   } catch (error) {

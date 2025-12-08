@@ -5,6 +5,7 @@ import { AppointmentStatus, AppointmentOrigin, OrderItemType } from '../types/en
 import { sendWhatsAppMessage, replaceTemplateVariables } from '../services/whatsapp';
 import { MessageStatus } from '../types/enums';
 import { createRateLimiter } from '../middleware/rateLimiter';
+import { AuditService } from '../services/audit';
 
 function mapAppointment(a: any) {
   return {
@@ -374,6 +375,24 @@ appointmentsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Re
       console.error('Failed to send confirmation message (non-blocking)', error);
     }
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logCreate(
+      salonId,
+      req.user.userId,
+      'appointments',
+      appointment.id,
+      { 
+        clientId: appointment.clientId, 
+        collaboratorId: appointment.collaboratorId,
+        start: appointment.start.toISOString(),
+        status: appointment.status,
+        origin: appointment.origin
+      },
+      ipAddress,
+      userAgent
+    );
+
     res.status(201).json(mapAppointment(appointment));
   } catch (error) {
     console.error('Error creating appointment', error);
@@ -493,6 +512,29 @@ appointmentsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       return updatedAppointment;
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logUpdate(
+      salonId,
+      req.user.userId,
+      'appointments',
+      updated.id,
+      { 
+        clientId: existing.clientId, 
+        collaboratorId: existing.collaboratorId,
+        start: existing.start.toISOString(),
+        status: existing.status
+      },
+      { 
+        clientId: updated.clientId, 
+        collaboratorId: updated.collaboratorId,
+        start: updated.start.toISOString(),
+        status: updated.status
+      },
+      ipAddress,
+      userAgent
+    );
+
     res.json(mapAppointment(updated));
   } catch (error) {
     console.error('Error updating appointment', error);
@@ -541,6 +583,19 @@ appointmentsRouter.post('/:id/status', async (req: AuthRequest, res: Response) =
       data: { status },
       include: { services: true },
     });
+
+    // Log de auditoria para mudança de status
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logUpdate(
+      salonId,
+      req.user.userId,
+      'appointments',
+      updated.id,
+      { status: currentStatus },
+      { status: updated.status },
+      ipAddress,
+      userAgent
+    );
 
     res.json(mapAppointment(updated));
   } catch (error) {

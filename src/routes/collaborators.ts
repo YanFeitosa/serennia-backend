@@ -7,6 +7,7 @@ import { sanitizeString, validateEmail, validatePhone, sanitizePhone } from '../
 import { createRateLimiter } from '../middleware/rateLimiter';
 import { supabaseAdmin } from '../lib/supabase';
 import { sendWelcomeEmail } from '../lib/email';
+import { AuditService } from '../services/audit';
 
 function mapCollaborator(c: any) {
   return {
@@ -294,6 +295,18 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
       },
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logCreate(
+      salonId,
+      req.user.userId,
+      'collaborators',
+      collaborator.id,
+      { name: collaborator.name, role: collaborator.role, email: collaborator.email, phone: collaborator.phone },
+      ipAddress,
+      userAgent
+    );
+
     res.status(201).json(mapCollaborator(collaborator));
   } catch (error: any) {
     if (error && error.code === 'P2002') {
@@ -453,6 +466,19 @@ collaboratorsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       data,
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logUpdate(
+      salonId,
+      req.user.userId,
+      'collaborators',
+      updated.id,
+      { name: existing.name, role: existing.role, status: existing.status, email: existing.email, phone: existing.phone, commissionRate: Number(existing.commissionRate) },
+      { name: updated.name, role: updated.role, status: updated.status, email: updated.email, phone: updated.phone, commissionRate: Number(updated.commissionRate) },
+      ipAddress,
+      userAgent
+    );
+
     res.json(mapCollaborator(updated));
   } catch (error: any) {
     if (error && error.code === 'P2002') {
@@ -495,6 +521,18 @@ collaboratorsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: existing.id },
       data: { status: 'inactive', deletedAt: new Date() },
     });
+
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logDelete(
+      salonId,
+      req.user.userId,
+      'collaborators',
+      existing.id,
+      { name: existing.name, role: existing.role, email: existing.email, phone: existing.phone },
+      ipAddress,
+      userAgent
+    );
 
     res.status(204).send();
   } catch (error) {

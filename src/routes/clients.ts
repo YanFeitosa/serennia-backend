@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { hasPermission } from '../middleware/supabaseAuth';
 import { sanitizeString, validateEmail, validatePhone, sanitizePhone } from '../utils/validation';
 import { createRateLimiter } from '../middleware/rateLimiter';
+import { AuditService } from '../services/audit';
 
 function mapClient(c: any) {
   return {
@@ -111,6 +112,18 @@ clientsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Respons
         email: sanitizedEmail,
       },
     });
+
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logCreate(
+      salonId,
+      req.user.userId,
+      'clients',
+      client.id,
+      { name: client.name, phone: client.phone, email: client.email },
+      ipAddress,
+      userAgent
+    );
 
     res.status(201).json(mapClient(client));
   } catch (error: any) {
@@ -224,6 +237,19 @@ clientsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       data,
     });
 
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logUpdate(
+      salonId,
+      req.user.userId,
+      'clients',
+      updated.id,
+      { name: existing.name, phone: existing.phone, email: existing.email, lastVisit: existing.lastVisit },
+      { name: updated.name, phone: updated.phone, email: updated.email, lastVisit: updated.lastVisit },
+      ipAddress,
+      userAgent
+    );
+
     res.json(mapClient(updated));
   } catch (error: any) {
     if (error && error.code === 'P2002') {
@@ -264,6 +290,18 @@ clientsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       where: { id: existing.id },
       data: { isActive: false, deletedAt: new Date() },
     });
+
+    // Log de auditoria
+    const { ipAddress, userAgent } = AuditService.getRequestInfo(req);
+    await AuditService.logDelete(
+      salonId,
+      req.user.userId,
+      'clients',
+      existing.id,
+      { name: existing.name, phone: existing.phone, email: existing.email },
+      ipAddress,
+      userAgent
+    );
 
     res.status(204).send();
   } catch (error) {

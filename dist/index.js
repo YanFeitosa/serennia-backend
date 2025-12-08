@@ -31,20 +31,26 @@ const auth_2 = require("./middleware/auth");
 const errorHandler_1 = require("./middleware/errorHandler");
 const rateLimiter_1 = require("./middleware/rateLimiter");
 const app = (0, express_1.default)();
-const CORS_ORIGIN = process.env.FRONTEND_ORIGIN;
-if (!CORS_ORIGIN) {
+// Parse multiple CORS origins from environment variable (comma-separated)
+const CORS_ORIGINS = process.env.FRONTEND_ORIGIN
+    ? process.env.FRONTEND_ORIGIN.split(',').map(origin => origin.trim())
+    : [];
+if (CORS_ORIGINS.length === 0) {
     console.warn("WARNING: FRONTEND_ORIGIN not set. CORS will be disabled.");
+}
+else {
+    console.log("✅ CORS enabled for origins:", CORS_ORIGINS);
 }
 app.use(express_1.default.json());
 app.use((req, res, next) => {
     // CORS configuration
     const origin = req.headers.origin;
-    // Allow requests from configured origin or any origin in development
-    if (CORS_ORIGIN) {
-        res.header("Access-Control-Allow-Origin", CORS_ORIGIN);
+    // Check if request origin is in allowed origins
+    if (origin && CORS_ORIGINS.includes(origin)) {
+        res.header("Access-Control-Allow-Origin", origin);
     }
     else if (process.env.NODE_ENV !== 'production' && origin) {
-        // In development, allow any origin if FRONTEND_ORIGIN is not set
+        // In development, allow any origin if not in production
         res.header("Access-Control-Allow-Origin", origin);
         console.warn(`⚠️ CORS: Allowing origin ${origin} (development mode)`);
     }

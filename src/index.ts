@@ -41,9 +41,15 @@ import {
 
 const app = express();
 
-const CORS_ORIGIN = process.env.FRONTEND_ORIGIN;
-if (!CORS_ORIGIN) {
+// Parse multiple CORS origins from environment variable (comma-separated)
+const CORS_ORIGINS = process.env.FRONTEND_ORIGIN
+  ? process.env.FRONTEND_ORIGIN.split(',').map(origin => origin.trim())
+  : [];
+
+if (CORS_ORIGINS.length === 0) {
   console.warn("WARNING: FRONTEND_ORIGIN not set. CORS will be disabled.");
+} else {
+  console.log("✅ CORS enabled for origins:", CORS_ORIGINS);
 }
 
 app.use(express.json());
@@ -52,11 +58,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // CORS configuration
   const origin = req.headers.origin;
 
-  // Allow requests from configured origin or any origin in development
-  if (CORS_ORIGIN) {
-    res.header("Access-Control-Allow-Origin", CORS_ORIGIN);
+  // Check if request origin is in allowed origins
+  if (origin && CORS_ORIGINS.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
   } else if (process.env.NODE_ENV !== 'production' && origin) {
-    // In development, allow any origin if FRONTEND_ORIGIN is not set
+    // In development, allow any origin if not in production
     res.header("Access-Control-Allow-Origin", origin);
     console.warn(`⚠️ CORS: Allowing origin ${origin} (development mode)`);
   }

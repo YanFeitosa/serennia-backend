@@ -94,14 +94,6 @@ const supabaseAuthMiddleware = async (req, res, next) => {
                 tenantRole: true,
             },
         });
-        // Debug log
-        console.log('[Auth Debug]', {
-            email: user.email,
-            metadataPlatformRole,
-            dbPlatformRole: dbUser?.platformRole,
-            metadataSalonId,
-            dbSalonId: dbUser?.salonId,
-        });
         if (!dbUser) {
             res.status(401).json({ error: 'Usuário não encontrado no banco de dados' });
             return;

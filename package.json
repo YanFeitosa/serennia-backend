@@ -25,7 +25,8 @@
     "express-rate-limit": "^8.2.1",
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^3.0.4",
-    "jspdf-autotable": "^5.0.2"
+    "jspdf-autotable": "^5.0.2",
+    "resend": "^6.5.2"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

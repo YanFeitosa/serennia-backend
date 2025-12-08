@@ -1,7 +1,16 @@
 /**
  * Email service for sending transactional emails
- * Currently a placeholder - implement with your email provider (SendGrid, AWS SES, etc.)
+ * Uses Resend as the email provider
  */
+
+import { Resend } from 'resend';
+
+// Initialize Resend client
+const resendApiKey = process.env.RESEND_API_KEY;
+const resend = resendApiKey ? new Resend(resendApiKey) : null;
+
+// Email sender address (must be verified in Resend)
+const FROM_EMAIL = process.env.EMAIL_FROM || 'Serennia <onboarding@resend.dev>';
 
 interface EmailOptions {
   to: string;
@@ -11,22 +20,34 @@ interface EmailOptions {
 }
 
 export async function sendEmail(options: EmailOptions): Promise<void> {
-  // TODO: Implement email sending
-  // Options:
-  // 1. SendGrid
-  // 2. AWS SES
-  // 3. Resend
-  // 4. Nodemailer with SMTP
-  
-  console.log('📧 Email would be sent:', {
-    to: options.to,
-    subject: options.subject,
-  });
-  
-  // For now, just log. Implement actual email sending later.
-  // Example with Nodemailer:
-  // const transporter = nodemailer.createTransport({...});
-  // await transporter.sendMail({...});
+  if (!resend) {
+    console.warn('⚠️ RESEND_API_KEY not configured. Email not sent.');
+    console.log('📧 Email would be sent:', {
+      to: options.to,
+      subject: options.subject,
+    });
+    return;
+  }
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: options.to,
+      subject: options.subject,
+      html: options.html,
+      text: options.text,
+    });
+
+    if (error) {
+      console.error('❌ Error sending email:', error);
+      throw new Error(`Failed to send email: ${error.message}`);
+    }
+
+    console.log('✅ Email sent successfully:', data?.id);
+  } catch (err) {
+    console.error('❌ Error sending email:', err);
+    throw err;
+  }
 }
 
 export async function sendWelcomeEmail(

@@ -164,11 +164,11 @@ collaboratorsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) 
             try {
                 // Generate default password: firstName (lowercase) + last 4 digits of CPF
                 const defaultPassword = generateDefaultPassword(sanitizedName, cleanedCPF);
-                // Create user in Supabase Auth
+                // Create user in Supabase Auth with email confirmation required
                 const { data: authData, error: authError } = await supabase_1.supabaseAdmin.auth.admin.createUser({
                     email: (0, validation_1.sanitizeString)(email).toLowerCase(),
                     password: defaultPassword,
-                    email_confirm: false, // Require email confirmation
+                    email_confirm: false, // User must confirm email to activate
                     user_metadata: {
                         salonId: salonId,
                         tenantRole: role,
@@ -196,23 +196,33 @@ collaboratorsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) 
                                 passwordHash: null, // Not used with Supabase
                             },
                         });
-                        // Send welcome email with password reset link
+                        // Send email confirmation link
                         try {
-                            // Generate password reset link
-                            const { data: resetData, error: resetError } = await supabase_1.supabaseAdmin.auth.admin.generateLink({
-                                type: 'recovery',
+                            // Generate magic link for email confirmation
+                            const { data: confirmData, error: confirmError } = await supabase_1.supabaseAdmin.auth.admin.generateLink({
+                                type: 'magiclink',
                                 email: (0, validation_1.sanitizeString)(email).toLowerCase(),
                             });
-                            if (!resetError && resetData?.properties?.action_link) {
-                                await (0, email_1.sendWelcomeEmail)((0, validation_1.sanitizeString)(email).toLowerCase(), sanitizedName, salonName, resetData.properties.action_link);
+                            if (!confirmError && confirmData?.properties?.action_link) {
+                                await (0, email_1.sendCollaboratorInviteEmail)((0, validation_1.sanitizeString)(email).toLowerCase(), sanitizedName, salonName, confirmData.properties.action_link, defaultPassword);
                             }
                             else {
-                                // Fallback: send email with default password
-                                await (0, email_1.sendWelcomeEmail)((0, validation_1.sanitizeString)(email).toLowerCase(), sanitizedName, salonName, undefined, defaultPassword);
+                                // Fallback: use recovery link
+                                const { data: resetData, error: resetError } = await supabase_1.supabaseAdmin.auth.admin.generateLink({
+                                    type: 'recovery',
+                                    email: (0, validation_1.sanitizeString)(email).toLowerCase(),
+                                });
+                                if (!resetError && resetData?.properties?.action_link) {
+                                    await (0, email_1.sendCollaboratorInviteEmail)((0, validation_1.sanitizeString)(email).toLowerCase(), sanitizedName, salonName, resetData.properties.action_link, defaultPassword);
+                                }
+                                else {
+                                    // Last fallback: send email with just the password
+                                    await (0, email_1.sendCollaboratorInviteEmail)((0, validation_1.sanitizeString)(email).toLowerCase(), sanitizedName, salonName, undefined, defaultPassword);
+                                }
                             }
                         }
                         catch (emailError) {
-                            console.error('Error sending welcome email:', emailError);
+                            console.error('Error sending invite email:', emailError);
                             // Don't fail collaborator creation if email fails
                         }
                     }
@@ -237,13 +247,16 @@ collaboratorsRouter.post('/', rateLimiter_1.createRateLimiter, async (req, res) 
                 // Continue without user if there's an error
             }
         }
+        // If collaborator has email, they start as inactive until email confirmation
+        // Otherwise, use the provided status (default: active)
+        const collaboratorStatus = email ? 'inactive' : (status ?? 'active');
         const collaborator = await prismaClient_1.prisma.collaborator.create({
             data: {
                 salonId,
                 userId: userId,
                 name: sanitizedName,
                 role,
-                status: status ?? 'active',
+                status: collaboratorStatus,
                 phone: phone ? (0, validation_1.sanitizePhone)(phone) : null,
                 email: email ? (0, validation_1.sanitizeString)(email) : null,
                 cpf: cleanedCPF,

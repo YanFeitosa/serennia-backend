@@ -109,6 +109,38 @@ authRouter.post("/login", loginRateLimiter, async (req: Request, res: Response) 
       return;
     }
 
+    // Check if user is a collaborator and if they're active
+    if (user.tenantRole && user.salonId) {
+      const collaborator = await prisma.collaborator.findFirst({
+        where: {
+          userId: user.id,
+          salonId: user.salonId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (collaborator && collaborator.status === 'inactive') {
+        // Check if email is confirmed in Supabase
+        if (!authData.user.email_confirmed_at) {
+          res.status(403).json({ 
+            error: "Sua conta ainda não foi ativada. Por favor, confirme seu email para acessar o sistema.",
+            code: "EMAIL_NOT_CONFIRMED"
+          });
+          return;
+        }
+
+        // Email is confirmed but status still inactive - activate now
+        await prisma.collaborator.update({
+          where: { id: collaborator.id },
+          data: { status: 'active' },
+        });
+        console.log(`Collaborator auto-activated after confirmed email login`);
+      }
+    }
+
     // If Super Admin requested a specific salon context, verify it exists and return it
     let activeSalonId = user.salonId || '';
     let activeSalonName = undefined;
@@ -322,5 +354,105 @@ authRouter.post("/forgot-password", apiRateLimiter, async (req: Request, res: Re
   }
 });
 
-export { authRouter };
+/**
+ * Webhook endpoint for Supabase Auth events
+ * Called when user confirms their email
+ * Activates the collaborator's status
+ */
+authRouter.post("/webhook/email-confirmed", async (req: Request, res: Response) => {
+  try {
+    // Verify webhook secret (optional but recommended)
+    const webhookSecret = process.env.SUPABASE_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const providedSecret = req.headers['x-webhook-secret'];
+      if (providedSecret !== webhookSecret) {
+        console.warn('Invalid webhook secret provided');
+        res.status(401).json({ error: 'Invalid webhook secret' });
+        return;
+      }
+    }
 
+    const { type, record, old_record } = req.body;
+
+    // Handle email confirmation event
+    // Supabase sends this when email_confirmed_at changes from null to a timestamp
+    if (type === 'UPDATE' && record?.email_confirmed_at && !old_record?.email_confirmed_at) {
+      const userId = record.id;
+      const email = record.email;
+
+      console.log(`Email confirmed for user ${userId} (${email})`);
+
+      // Find and activate the collaborator
+      const collaborator = await prisma.collaborator.findFirst({
+        where: {
+          userId: userId,
+          status: 'inactive',
+        },
+      });
+
+      if (collaborator) {
+        await prisma.collaborator.update({
+          where: { id: collaborator.id },
+          data: { status: 'active' },
+        });
+        console.log(`Collaborator ${collaborator.id} activated after email confirmation`);
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error processing email confirmation webhook:", error);
+    res.status(500).json({ error: "Failed to process webhook" });
+  }
+});
+
+/**
+ * Endpoint to manually activate collaborator after email confirmation
+ * Called from frontend after user confirms email via Supabase
+ */
+authRouter.post("/activate-collaborator", supabaseAuthMiddleware, async (req: SupabaseAuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const userId = req.user.userId;
+
+    // Find and activate the collaborator
+    const collaborator = await prisma.collaborator.findFirst({
+      where: {
+        userId: userId,
+        status: 'inactive',
+      },
+    });
+
+    if (!collaborator) {
+      // Maybe already active or not found
+      const existingCollaborator = await prisma.collaborator.findFirst({
+        where: { userId: userId },
+      });
+
+      if (existingCollaborator?.status === 'active') {
+        res.json({ success: true, message: 'Conta já está ativa' });
+        return;
+      }
+
+      res.status(404).json({ error: 'Colaborador não encontrado' });
+      return;
+    }
+
+    await prisma.collaborator.update({
+      where: { id: collaborator.id },
+      data: { status: 'active' },
+    });
+
+    console.log(`Collaborator ${collaborator.id} activated via manual endpoint`);
+    res.json({ success: true, message: 'Conta ativada com sucesso!' });
+  } catch (error) {
+    console.error("Error activating collaborator:", error);
+    res.status(500).json({ error: "Erro ao ativar conta" });
+  }
+});
+
+export { authRouter };

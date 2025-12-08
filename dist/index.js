@@ -49,6 +49,10 @@ app.use((req, res, next) => {
     if (origin && CORS_ORIGINS.includes(origin)) {
         res.header("Access-Control-Allow-Origin", origin);
     }
+    else if (origin && CORS_ORIGINS.length > 0) {
+        // Log blocked origin for debugging
+        console.warn(`⚠️ CORS: Blocked origin ${origin}. Allowed: ${CORS_ORIGINS.join(', ')}`);
+    }
     else if (process.env.NODE_ENV !== 'production' && origin) {
         // In development, allow any origin if not in production
         res.header("Access-Control-Allow-Origin", origin);
@@ -57,8 +61,14 @@ app.use((req, res, next) => {
     res.header("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type,Authorization,x-salon-id");
     res.header("Access-Control-Allow-Credentials", "true");
+    // Handle preflight - must respond with 200 for allowed origins
     if (req.method === "OPTIONS") {
-        res.sendStatus(204);
+        if (origin && CORS_ORIGINS.includes(origin)) {
+            res.sendStatus(200);
+        }
+        else {
+            res.sendStatus(204);
+        }
         return;
     }
     next();

@@ -1,6 +1,6 @@
 // src/services/audit.ts
 import { prisma } from '../prismaClient';
-import { AuditAction } from '../types/enums';
+import type { AuditAction } from '../types/enums';
 
 export interface AuditLogData {
   salonId: string;
@@ -57,7 +57,7 @@ export class AuditService {
     await this.log({
       salonId,
       userId,
-      action: AuditAction.INSERT,
+      action: 'INSERT',
       tableName,
       recordId,
       newValue: this.sanitizeValue(newValue),
@@ -82,7 +82,7 @@ export class AuditService {
     await this.log({
       salonId,
       userId,
-      action: AuditAction.UPDATE,
+      action: 'UPDATE',
       tableName,
       recordId,
       oldValue: this.sanitizeValue(oldValue),
@@ -107,7 +107,7 @@ export class AuditService {
     await this.log({
       salonId,
       userId,
-      action: AuditAction.DELETE,
+      action: 'DELETE',
       tableName,
       recordId,
       oldValue: this.sanitizeValue(oldValue),

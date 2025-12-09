@@ -54,8 +54,13 @@ commissionsRouter.get('/', async (req: AuthRequest, res: Response) => {
         orderItem: {
           select: {
             id: true,
-            name: true,
             type: true,
+            service: {
+              select: { name: true },
+            },
+            product: {
+              select: { name: true },
+            },
           },
         },
       },
@@ -77,7 +82,7 @@ commissionsRouter.get('/', async (req: AuthRequest, res: Response) => {
       paymentDate: r.paymentDate?.toISOString() || null,
       periodStart: r.periodStart?.toISOString() || null,
       periodEnd: r.periodEnd?.toISOString() || null,
-      description: r.orderItem?.name || 'Serviço',
+      description: r.orderItem?.service?.name || r.orderItem?.product?.name || 'Serviço',
       createdAt: r.order?.createdAt?.toISOString() || null,
     }));
 

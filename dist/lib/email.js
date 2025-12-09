@@ -14,12 +14,15 @@ const resend = resendApiKey ? new resend_1.Resend(resendApiKey) : null;
 // Email sender address (must be verified in Resend)
 const FROM_EMAIL = process.env.EMAIL_FROM || 'Serennia <onboarding@resend.dev>';
 async function sendEmail(options) {
+    console.log('📧 Attempting to send email:', {
+        to: options.to,
+        subject: options.subject,
+        from: FROM_EMAIL,
+        hasResendClient: !!resend,
+        hasApiKey: !!resendApiKey,
+    });
     if (!resend) {
         console.warn('⚠️ RESEND_API_KEY not configured. Email not sent.');
-        console.log('📧 Email would be sent:', {
-            to: options.to,
-            subject: options.subject,
-        });
         return;
     }
     try {

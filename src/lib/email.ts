@@ -20,12 +20,16 @@ interface EmailOptions {
 }
 
 export async function sendEmail(options: EmailOptions): Promise<void> {
+  console.log('📧 Attempting to send email:', {
+    to: options.to,
+    subject: options.subject,
+    from: FROM_EMAIL,
+    hasResendClient: !!resend,
+    hasApiKey: !!resendApiKey,
+  });
+
   if (!resend) {
     console.warn('⚠️ RESEND_API_KEY not configured. Email not sent.');
-    console.log('📧 Email would be sent:', {
-      to: options.to,
-      subject: options.subject,
-    });
     return;
   }
 

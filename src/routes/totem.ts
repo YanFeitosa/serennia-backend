@@ -2,7 +2,6 @@
 // Rotas públicas do totem (sem autenticação JWT completa)
 import { Router, Request, Response } from 'express';
 import { prisma } from '../prismaClient';
-import { getDefaultSalonId } from '../salonContext';
 import { AppointmentOrigin, AppointmentStatus } from '../types/enums';
 
 const totemRouter = Router();
@@ -14,11 +13,76 @@ const APPOINTMENT_BLOCKING_STATUSES: AppointmentStatus[] = [
   'not_paid',
 ];
 
-// POST /totem/client/login - Login por telefone
+// POST /totem/device/login - Login do dispositivo totem com código de acesso
+totemRouter.post('/device/login', async (req: Request, res: Response) => {
+  try {
+    const { accessCode } = req.body as { accessCode: string };
+
+    if (!accessCode) {
+      res.status(400).json({ error: 'Código de acesso é obrigatório' });
+      return;
+    }
+
+    // Clean the access code (remove any non-numeric characters)
+    const cleanedCode = accessCode.replace(/\D/g, '');
+
+    if (cleanedCode.length !== 6) {
+      res.status(400).json({ error: 'Código de acesso deve ter 6 dígitos' });
+      return;
+    }
+
+    const device = await prisma.totemDevice.findUnique({
+      where: { accessCode: cleanedCode },
+      include: {
+        salon: {
+          select: {
+            id: true,
+            name: true,
+            theme: true,
+          }
+        }
+      }
+    });
+
+    if (!device) {
+      res.status(404).json({ error: 'Código de acesso inválido' });
+      return;
+    }
+
+    if (!device.isActive) {
+      res.status(403).json({ error: 'Este totem foi desativado' });
+      return;
+    }
+
+    // Update last access time
+    await prisma.totemDevice.update({
+      where: { id: device.id },
+      data: { lastAccessAt: new Date() }
+    });
+
+    // Return device info with salon data
+    res.json({
+      deviceId: device.id,
+      deviceName: device.name,
+      salonId: device.salonId,
+      salonName: device.salon.name,
+      salonTheme: device.salon.theme,
+    });
+  } catch (error) {
+    console.error('Error in totem device login', error);
+    res.status(500).json({ error: 'Falha ao autenticar totem' });
+  }
+});
+
+// POST /totem/client/login - Login por telefone (requires salonId in body)
 totemRouter.post('/client/login', async (req: Request, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
-    const { phone } = req.body as { phone: string };
+    const { phone, salonId } = req.body as { phone: string; salonId: string };
+
+    if (!salonId) {
+      res.status(400).json({ error: 'Salon ID is required' });
+      return;
+    }
 
     if (!phone) {
       res.status(400).json({ error: 'Phone is required' });
@@ -63,12 +127,17 @@ totemRouter.post('/client/login', async (req: Request, res: Response) => {
 // POST /totem/client/register - Cadastro rápido de cliente
 totemRouter.post('/client/register', async (req: Request, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
-    const { name, phone, email } = req.body as {
+    const { name, phone, email, salonId } = req.body as {
       name: string;
       phone: string;
       email?: string;
+      salonId: string;
     };
+
+    if (!salonId) {
+      res.status(400).json({ error: 'Salon ID is required' });
+      return;
+    }
 
     if (!name || !phone) {
       res.status(400).json({ error: 'Name and phone are required' });
@@ -150,10 +219,15 @@ totemRouter.post('/client/register', async (req: Request, res: Response) => {
   }
 });
 
-// GET /totem/services - Listar serviços ativos (público)
+// GET /totem/services - Listar serviços ativos (requires salonId query param)
 totemRouter.get('/services', async (req: Request, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
+    const { salonId } = req.query as { salonId?: string };
+    
+    if (!salonId) {
+      res.status(400).json({ error: 'Salon ID is required' });
+      return;
+    }
 
     const services = await prisma.service.findMany({
       where: {
@@ -195,13 +269,18 @@ totemRouter.get('/services', async (req: Request, res: Response) => {
   }
 });
 
-// GET /totem/collaborators - Listar profissionais ativos
+// GET /totem/collaborators - Listar profissionais ativos (requires salonId query param)
 totemRouter.get('/collaborators', async (req: Request, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
-    const { serviceCategoryIds } = req.query as {
+    const { salonId, serviceCategoryIds } = req.query as {
+      salonId?: string;
       serviceCategoryIds?: string;
     };
+
+    if (!salonId) {
+      res.status(400).json({ error: 'Salon ID is required' });
+      return;
+    }
 
     const where: any = {
       salonId,
@@ -234,15 +313,20 @@ totemRouter.get('/collaborators', async (req: Request, res: Response) => {
   }
 });
 
-// GET /totem/availability - Verificar disponibilidade
+// GET /totem/availability - Verificar disponibilidade (requires salonId query param)
 totemRouter.get('/availability', async (req: Request, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
-    const { collaboratorId, date, duration } = req.query as {
+    const { salonId, collaboratorId, date, duration } = req.query as {
+      salonId?: string;
       collaboratorId: string;
       date: string; // YYYY-MM-DD
       duration: string; // minutos
     };
+
+    if (!salonId) {
+      res.status(400).json({ error: 'Salon ID is required' });
+      return;
+    }
 
     if (!collaboratorId || !date || !duration) {
       res.status(400).json({
@@ -341,16 +425,21 @@ totemRouter.get('/availability', async (req: Request, res: Response) => {
   }
 });
 
-// POST /totem/appointments - Criar agendamento pelo totem
+// POST /totem/appointments - Criar agendamento pelo totem (requires salonId in body)
 totemRouter.post('/appointments', async (req: Request, res: Response) => {
   try {
-    const salonId = await getDefaultSalonId();
-    const { clientId, collaboratorId, serviceIds, start } = req.body as {
+    const { salonId, clientId, collaboratorId, serviceIds, start } = req.body as {
+      salonId: string;
       clientId: string;
       collaboratorId: string;
       serviceIds: string[];
       start: string; // ISO string
     };
+
+    if (!salonId) {
+      res.status(400).json({ error: 'Salon ID is required' });
+      return;
+    }
 
     if (!clientId || !collaboratorId || !serviceIds || !start) {
       res.status(400).json({

@@ -162,6 +162,23 @@ model Salon {
   orderItems    OrderItem[]
   messageTemplates MessageTemplate[]
   messageLogs   MessageLog[]
+  totemDevices  TotemDevice[]
+}
+
+model TotemDevice {
+  id          String    @id @default(uuid())
+  salonId     String
+  name        String    // Nome identificador do totem (ex: "Totem Recepção", "Totem Entrada")
+  accessCode  String    @unique // Código de 6 dígitos para login do totem
+  isActive    Boolean   @default(true)
+  lastAccessAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  salon       Salon     @relation(fields: [salonId], references: [id])
+
+  @@index([salonId])
+  @@index([accessCode])
 }
 
 model User {

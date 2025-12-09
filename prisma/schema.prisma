@@ -124,6 +124,7 @@ model Salon {
   variableCostRate     Decimal?
   rolePermissions      Json?
   theme                Json?
+  stockControlEnabled  Boolean   @default(true)
   tenantAdminId String?     @unique
   status        SalonStatus @default(pending)
   createdAt     DateTime    @default(now())
@@ -292,6 +293,7 @@ model Product {
   price       Decimal
   costPrice   Decimal?
   stock       Int
+  trackStock  Boolean  @default(true)
   isActive    Boolean  @default(true)
   deletedAt   DateTime?
   createdAt   DateTime @default(now())

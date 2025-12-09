@@ -568,13 +568,46 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const updated = await prisma.order.update({
-      where: { id: existing.id },
-      data: {
-        status: 'paid',
-        closedAt: existing.closedAt ?? new Date(),
-      },
-      include: { items: { where: { deletedAt: null } }, appointment: true },
+    // Use a transaction to update order status and reduce stock atomically
+    const updated = await prisma.$transaction(async (tx) => {
+      // Get salon settings to check if stock control is enabled
+      const salon = await tx.salon.findUnique({
+        where: { id: salonId },
+        select: { stockControlEnabled: true },
+      });
+
+      // Reduce stock for product items if stock control is enabled
+      if (salon?.stockControlEnabled) {
+        const productItems = existing.items.filter(item => item.type === 'product' && item.productId);
+        
+        for (const item of productItems) {
+          if (!item.productId) continue;
+          
+          // Get the product to check if it tracks stock
+          const product = await tx.product.findUnique({
+            where: { id: item.productId },
+            select: { trackStock: true, stock: true },
+          });
+          
+          if (product && product.trackStock) {
+            const quantity = item.quantity ?? 1;
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { decrement: quantity } },
+            });
+          }
+        }
+      }
+
+      // Update order status
+      return await tx.order.update({
+        where: { id: existing.id },
+        data: {
+          status: 'paid',
+          closedAt: existing.closedAt ?? new Date(),
+        },
+        include: { items: { where: { deletedAt: null } }, appointment: true },
+      });
     });
 
     // Log de auditoria

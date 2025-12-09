@@ -165,6 +165,7 @@ app.patch("/salon", apiRateLimiter, authMiddleware, async (req: AuthRequest, res
       variableCostRate,
       rolePermissions,
       theme,
+      stockControlEnabled,
       // WhatsApp Integration
       whatsappApiUrl,
       whatsappApiKey,
@@ -185,6 +186,7 @@ app.patch("/salon", apiRateLimiter, authMiddleware, async (req: AuthRequest, res
       variableCostRate?: number;
       rolePermissions?: any;
       theme?: any;
+      stockControlEnabled?: boolean;
       // WhatsApp Integration
       whatsappApiUrl?: string | null;
       whatsappApiKey?: string | null;
@@ -270,6 +272,14 @@ app.patch("/salon", apiRateLimiter, authMiddleware, async (req: AuthRequest, res
         return;
       }
       data.theme = theme;
+    }
+
+    if (stockControlEnabled !== undefined) {
+      if (typeof stockControlEnabled !== "boolean") {
+        res.status(400).json({ error: "stockControlEnabled must be a boolean" });
+        return;
+      }
+      data.stockControlEnabled = stockControlEnabled;
     }
 
     // WhatsApp Integration fields

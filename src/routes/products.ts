@@ -16,6 +16,7 @@ function mapProduct(p: any) {
     price: Number(p.price),
     costPrice: p.costPrice != null ? Number(p.costPrice) : undefined,
     stock: p.stock,
+    trackStock: p.trackStock ?? true,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   };
@@ -80,6 +81,7 @@ productsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Respon
       price,
       costPrice,
       stock,
+      trackStock,
       isActive,
     } = req.body as {
       name?: string;
@@ -88,6 +90,7 @@ productsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Respon
       price?: number;
       costPrice?: number;
       stock?: number;
+      trackStock?: boolean;
       isActive?: boolean;
     };
 
@@ -149,6 +152,7 @@ productsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Respon
         price,
         costPrice: costPrice != null ? costPrice : null,
         stock: stock ?? 0,
+        trackStock: trackStock ?? true,
         isActive: isActive ?? true,
       },
       include: { category: true },
@@ -182,6 +186,7 @@ productsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       price,
       costPrice,
       stock,
+      trackStock,
       isActive,
     } = req.body as {
       name?: string;
@@ -190,6 +195,7 @@ productsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       price?: number;
       costPrice?: number;
       stock?: number;
+      trackStock?: boolean;
       isActive?: boolean;
     };
 
@@ -241,6 +247,9 @@ productsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
         return;
       }
       data.stock = stock;
+    }
+    if (trackStock !== undefined) {
+      data.trackStock = trackStock;
     }
     if (isActive !== undefined) data.isActive = isActive;
 

@@ -82,6 +82,7 @@ export function mapSalonSettings(s: any) {
       s.variableCostRate != null ? Number(s.variableCostRate) : null,
     rolePermissions: s.rolePermissions ?? DEFAULT_ROLE_PERMISSIONS,
     theme: s.theme ?? null,
+    stockControlEnabled: s.stockControlEnabled ?? true,
     // WhatsApp Integration
     whatsappApiUrl: s.whatsappApiUrl ?? null,
     whatsappApiKey: s.whatsappApiKey ?? null,

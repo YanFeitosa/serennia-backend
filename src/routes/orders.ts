@@ -658,7 +658,7 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
       }
 
       // Update order status
-      return await tx.order.update({
+      const updatedOrder = await tx.order.update({
         where: { id: existing.id },
         data: {
           status: 'paid',
@@ -666,6 +666,16 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
         },
         include: { items: { where: { deletedAt: null } }, appointment: true },
       });
+
+      // If there's an associated appointment with status 'not_paid', update it to 'completed'
+      if (existing.appointment && existing.appointment.status === 'not_paid') {
+        await tx.appointment.update({
+          where: { id: existing.appointment.id },
+          data: { status: 'completed' },
+        });
+      }
+
+      return updatedOrder;
     });
 
     // Log de auditoria

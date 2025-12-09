@@ -42,9 +42,8 @@ import {
 const app = express();
 
 // Parse multiple CORS origins from environment variable (comma-separated)
-// Remove trailing slashes for consistent matching
 const CORS_ORIGINS = process.env.FRONTEND_ORIGIN
-  ? process.env.FRONTEND_ORIGIN.split(',').map(origin => origin.trim().replace(/\/+$/, ''))
+  ? process.env.FRONTEND_ORIGIN.split(',').map(origin => origin.trim())
   : [];
 
 if (CORS_ORIGINS.length === 0) {
@@ -56,8 +55,8 @@ if (CORS_ORIGINS.length === 0) {
 app.use(express.json());
 
 app.use((req: Request, res: Response, next: NextFunction) => {
-  // CORS configuration - normalize origin by removing trailing slash
-  const origin = req.headers.origin?.replace(/\/+$/, '');
+  // CORS configuration
+  const origin = req.headers.origin;
 
   // Check if request origin is in allowed origins
   if (origin && CORS_ORIGINS.includes(origin)) {

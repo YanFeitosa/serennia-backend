@@ -232,10 +232,15 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
 
             // Send email confirmation link
             try {
+              const frontendUrl = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173').split(',')[0].trim().replace(/\/+$/, '');
+              
               // Generate magic link for email confirmation
               const { data: confirmData, error: confirmError } = await supabaseAdmin.auth.admin.generateLink({
                 type: 'magiclink',
                 email: sanitizeString(email).toLowerCase(),
+                options: {
+                  redirectTo: `${frontendUrl}/auth/callback`,
+                },
               });
 
               if (!confirmError && confirmData?.properties?.action_link) {
@@ -251,6 +256,9 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
                 const { data: resetData, error: resetError } = await supabaseAdmin.auth.admin.generateLink({
                   type: 'recovery',
                   email: sanitizeString(email).toLowerCase(),
+                  options: {
+                    redirectTo: `${frontendUrl}/auth/callback`,
+                  },
                 });
 
                 if (!resetError && resetData?.properties?.action_link) {

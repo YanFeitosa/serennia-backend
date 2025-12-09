@@ -22,7 +22,7 @@ function mapCollaborator(c: any) {
     cpf: c.cpf ?? undefined,
     avatarUrl: c.avatarUrl ?? undefined,
     commissionRate: Number(c.commissionRate),
-    commissionMode: c.commissionMode ?? 'service',
+    commissionMode: c.commissionMode ?? null, // null = usa padrão do salon
     serviceCategories: c.serviceCategories ?? [],
     // Banking info
     pixKey: c.pixKey ?? undefined,
@@ -132,7 +132,7 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
         commissionRate?: number;
         serviceCategories?: string[];
         avatarUrl?: string;
-        commissionMode?: 'service' | 'professional';
+        commissionMode?: 'service' | 'professional' | null;
         pixKey?: string;
         pixKeyType?: string;
         bankName?: string;
@@ -360,7 +360,7 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
         cpf: cleanedCPF,
         avatarUrl: avatarUrl ? sanitizeString(avatarUrl) : null,
         commissionRate: commissionRate ?? 0,
-        commissionMode: commissionMode ?? 'service',
+        commissionMode: commissionMode ?? null, // null = usa padrão do salon
         serviceCategories: serviceCategories ?? [],
         // Banking info
         pixKey: pixKey ? sanitizeString(pixKey) : null,
@@ -455,7 +455,7 @@ collaboratorsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
         avatarUrl?: string;
         commissionRate?: number;
         serviceCategories?: string[];
-        commissionMode?: 'service' | 'professional';
+        commissionMode?: 'service' | 'professional' | null;
         pixKey?: string;
         pixKeyType?: string;
         bankName?: string;

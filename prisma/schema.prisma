@@ -231,7 +231,7 @@ model Collaborator {
   updatedAt         DateTime           @updatedAt
 
   // Campos para sistema de comissões
-  commissionMode    CommissionMode     @default(service) // service = usa comissão do serviço, professional = usa taxa do profissional
+  commissionMode    CommissionMode?    // NULL = usa configuração do Salon, preenchido = override individual
   // Informações bancárias para pagamento de comissões
   pixKey            String?
   pixKeyType        String?            // cpf, cnpj, email, phone, random

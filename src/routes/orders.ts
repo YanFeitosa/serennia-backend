@@ -618,8 +618,10 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
         // Get service commission if needed
         let commissionRate = 0;
         
-        // Determine which commission mode to use
-        const collabMode = collaborator.commissionMode || 'service';
+        // Determine which commission mode to use:
+        // 1. Use collaborator's individual setting if defined
+        // 2. Otherwise, fall back to salon's global setting
+        const collabMode = collaborator.commissionMode || salon?.commissionMode || 'service';
         
         if (collabMode === 'professional') {
           // Use collaborator's fixed rate

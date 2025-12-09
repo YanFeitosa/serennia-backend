@@ -570,10 +570,10 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
 
     // Use a transaction to update order status and reduce stock atomically
     const updated = await prisma.$transaction(async (tx) => {
-      // Get salon settings to check if stock control is enabled
+      // Get salon settings to check if stock control is enabled and commission mode
       const salon = await tx.salon.findUnique({
         where: { id: salonId },
-        select: { stockControlEnabled: true },
+        select: { stockControlEnabled: true, commissionMode: true, defaultCommissionRate: true },
       });
 
       // Reduce stock for product items if stock control is enabled
@@ -596,6 +596,62 @@ ordersRouter.post('/:id/pay', async (req: AuthRequest, res: Response) => {
               data: { stock: { decrement: quantity } },
             });
           }
+        }
+      }
+
+      // Create commission records for service items with collaborators
+      const serviceItems = existing.items.filter(item => 
+        item.type === 'service' && item.collaboratorId
+      );
+
+      for (const item of serviceItems) {
+        if (!item.collaboratorId) continue;
+
+        // Get collaborator's commission settings
+        const collaborator = await tx.collaborator.findUnique({
+          where: { id: item.collaboratorId },
+          select: { commissionRate: true, commissionMode: true },
+        });
+
+        if (!collaborator) continue;
+
+        // Get service commission if needed
+        let commissionRate = 0;
+        
+        // Determine which commission mode to use
+        const collabMode = collaborator.commissionMode || 'service';
+        
+        if (collabMode === 'professional') {
+          // Use collaborator's fixed rate
+          commissionRate = Number(collaborator.commissionRate) || 0;
+        } else {
+          // Use service's commission rate
+          if (item.serviceId) {
+            const service = await tx.service.findUnique({
+              where: { id: item.serviceId },
+              select: { commission: true },
+            });
+            commissionRate = service?.commission ? Number(service.commission) : (Number(salon?.defaultCommissionRate) || 0);
+          } else {
+            commissionRate = Number(salon?.defaultCommissionRate) || 0;
+          }
+        }
+
+        // Calculate commission amount
+        const itemValue = Number(item.price) * (item.quantity ?? 1);
+        const commissionAmount = itemValue * commissionRate;
+
+        if (commissionAmount > 0) {
+          await tx.commissionRecord.create({
+            data: {
+              salonId,
+              collaboratorId: item.collaboratorId,
+              orderId: existing.id,
+              orderItemId: item.id,
+              amount: commissionAmount,
+              paid: false,
+            },
+          });
         }
       }
 

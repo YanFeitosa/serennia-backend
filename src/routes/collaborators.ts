@@ -22,7 +22,26 @@ function mapCollaborator(c: any) {
     cpf: c.cpf ?? undefined,
     avatarUrl: c.avatarUrl ?? undefined,
     commissionRate: Number(c.commissionRate),
+    commissionMode: c.commissionMode ?? 'service',
     serviceCategories: c.serviceCategories ?? [],
+    // Banking info
+    pixKey: c.pixKey ?? undefined,
+    pixKeyType: c.pixKeyType ?? undefined,
+    bankName: c.bankName ?? undefined,
+    bankAgency: c.bankAgency ?? undefined,
+    bankAccount: c.bankAccount ?? undefined,
+    bankAccountType: c.bankAccountType ?? undefined,
+    // Address
+    address: c.address ?? undefined,
+    addressNumber: c.addressNumber ?? undefined,
+    addressComplement: c.addressComplement ?? undefined,
+    addressNeighborhood: c.addressNeighborhood ?? undefined,
+    addressCity: c.addressCity ?? undefined,
+    addressState: c.addressState ?? undefined,
+    addressZipCode: c.addressZipCode ?? undefined,
+    // Dates
+    hireDate: c.hireDate ? c.hireDate.toISOString() : undefined,
+    birthDate: c.birthDate ? c.birthDate.toISOString() : undefined,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };
@@ -97,7 +116,12 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
       return;
     }
 
-    const { name, role, status, phone, email, cpf, commissionRate, serviceCategories, avatarUrl } =
+    const { 
+      name, role, status, phone, email, cpf, commissionRate, serviceCategories, avatarUrl,
+      commissionMode, pixKey, pixKeyType, bankName, bankAgency, bankAccount, bankAccountType,
+      address, addressNumber, addressComplement, addressNeighborhood, addressCity, addressState, addressZipCode,
+      hireDate, birthDate
+    } =
       req.body as {
         name?: string;
         role?: UserRole;
@@ -108,6 +132,22 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
         commissionRate?: number;
         serviceCategories?: string[];
         avatarUrl?: string;
+        commissionMode?: 'service' | 'professional';
+        pixKey?: string;
+        pixKeyType?: string;
+        bankName?: string;
+        bankAgency?: string;
+        bankAccount?: string;
+        bankAccountType?: string;
+        address?: string;
+        addressNumber?: string;
+        addressComplement?: string;
+        addressNeighborhood?: string;
+        addressCity?: string;
+        addressState?: string;
+        addressZipCode?: string;
+        hireDate?: string;
+        birthDate?: string;
       };
 
     if (!name || !role) {
@@ -320,7 +360,26 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
         cpf: cleanedCPF,
         avatarUrl: avatarUrl ? sanitizeString(avatarUrl) : null,
         commissionRate: commissionRate ?? 0,
+        commissionMode: commissionMode ?? 'service',
         serviceCategories: serviceCategories ?? [],
+        // Banking info
+        pixKey: pixKey ? sanitizeString(pixKey) : null,
+        pixKeyType: pixKeyType ? sanitizeString(pixKeyType) : null,
+        bankName: bankName ? sanitizeString(bankName) : null,
+        bankAgency: bankAgency ? sanitizeString(bankAgency) : null,
+        bankAccount: bankAccount ? sanitizeString(bankAccount) : null,
+        bankAccountType: bankAccountType ? sanitizeString(bankAccountType) : null,
+        // Address
+        address: address ? sanitizeString(address) : null,
+        addressNumber: addressNumber ? sanitizeString(addressNumber) : null,
+        addressComplement: addressComplement ? sanitizeString(addressComplement) : null,
+        addressNeighborhood: addressNeighborhood ? sanitizeString(addressNeighborhood) : null,
+        addressCity: addressCity ? sanitizeString(addressCity) : null,
+        addressState: addressState ? sanitizeString(addressState) : null,
+        addressZipCode: addressZipCode ? sanitizeString(addressZipCode).replace(/\D/g, '') : null,
+        // Dates
+        hireDate: hireDate ? new Date(hireDate) : null,
+        birthDate: birthDate ? new Date(birthDate) : null,
       },
     });
 
@@ -380,7 +439,12 @@ collaboratorsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const { name, role, status, phone, email, cpf, avatarUrl, commissionRate, serviceCategories } =
+    const { 
+      name, role, status, phone, email, cpf, avatarUrl, commissionRate, serviceCategories,
+      commissionMode, pixKey, pixKeyType, bankName, bankAgency, bankAccount, bankAccountType,
+      address, addressNumber, addressComplement, addressNeighborhood, addressCity, addressState, addressZipCode,
+      hireDate, birthDate
+    } =
       req.body as {
         name?: string;
         role?: UserRole;
@@ -391,6 +455,22 @@ collaboratorsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
         avatarUrl?: string;
         commissionRate?: number;
         serviceCategories?: string[];
+        commissionMode?: 'service' | 'professional';
+        pixKey?: string;
+        pixKeyType?: string;
+        bankName?: string;
+        bankAgency?: string;
+        bankAccount?: string;
+        bankAccountType?: string;
+        address?: string;
+        addressNumber?: string;
+        addressComplement?: string;
+        addressNeighborhood?: string;
+        addressCity?: string;
+        addressState?: string;
+        addressZipCode?: string;
+        hireDate?: string;
+        birthDate?: string;
       };
 
     const salonId = req.user.salonId;
@@ -489,11 +569,55 @@ collaboratorsRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
       data.commissionRate = commissionRate;
     }
     if (serviceCategories !== undefined) data.serviceCategories = serviceCategories;
+    if (commissionMode !== undefined) data.commissionMode = commissionMode;
+    
+    // Banking info
+    if (pixKey !== undefined) data.pixKey = pixKey ? sanitizeString(pixKey) : null;
+    if (pixKeyType !== undefined) data.pixKeyType = pixKeyType ? sanitizeString(pixKeyType) : null;
+    if (bankName !== undefined) data.bankName = bankName ? sanitizeString(bankName) : null;
+    if (bankAgency !== undefined) data.bankAgency = bankAgency ? sanitizeString(bankAgency) : null;
+    if (bankAccount !== undefined) data.bankAccount = bankAccount ? sanitizeString(bankAccount) : null;
+    if (bankAccountType !== undefined) data.bankAccountType = bankAccountType ? sanitizeString(bankAccountType) : null;
+    
+    // Address
+    if (address !== undefined) data.address = address ? sanitizeString(address) : null;
+    if (addressNumber !== undefined) data.addressNumber = addressNumber ? sanitizeString(addressNumber) : null;
+    if (addressComplement !== undefined) data.addressComplement = addressComplement ? sanitizeString(addressComplement) : null;
+    if (addressNeighborhood !== undefined) data.addressNeighborhood = addressNeighborhood ? sanitizeString(addressNeighborhood) : null;
+    if (addressCity !== undefined) data.addressCity = addressCity ? sanitizeString(addressCity) : null;
+    if (addressState !== undefined) data.addressState = addressState ? sanitizeString(addressState) : null;
+    if (addressZipCode !== undefined) data.addressZipCode = addressZipCode ? sanitizeString(addressZipCode).replace(/\D/g, '') : null;
+    
+    // Dates
+    if (hireDate !== undefined) data.hireDate = hireDate ? new Date(hireDate) : null;
+    if (birthDate !== undefined) data.birthDate = birthDate ? new Date(birthDate) : null;
 
     const updated = await prisma.collaborator.update({
       where: { id: existing.id },
       data,
     });
+
+    // Se o role foi alterado e o colaborador tem um userId, atualizar também na tabela User e no Supabase Auth
+    if (role !== undefined && role !== existing.role && existing.userId) {
+      try {
+        // Atualiza a tabela User
+        await prisma.user.update({
+          where: { id: existing.userId },
+          data: { tenantRole: role },
+        });
+
+        // Atualiza user_metadata no Supabase Auth
+        await supabaseAdmin.auth.admin.updateUserById(existing.userId, {
+          user_metadata: { 
+            tenantRole: role,
+            role: role,
+          },
+        });
+      } catch (userUpdateError) {
+        console.error('Error updating user role in User table or Supabase Auth', userUpdateError);
+        // Não falha a requisição principal, mas loga o erro
+      }
+    }
 
     // Log de auditoria
     const { ipAddress, userAgent } = AuditService.getRequestInfo(req);

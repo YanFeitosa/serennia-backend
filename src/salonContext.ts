@@ -26,6 +26,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     'produtos',
     'colaboradores',
     'financeiro',
+    'comissoes',
     'configuracoes',
     'auditoria',
     'notificacoes',
@@ -36,18 +37,21 @@ const DEFAULT_ROLE_PERMISSIONS = {
     'podeDeletarColaborador',
     'podeDeletarProduto',
     'podeDeletarServico',
+    'verDadosBancariosColaborador',
   ],
   manager: [
     'servicos',
     'produtos',
     'colaboradores',
     'financeiro',
+    'comissoes',
     'configuracoes',
     'auditoria',
     'podeDeletarCliente',
     'podeDeletarColaborador',
     'podeDeletarProduto',
     'podeDeletarServico',
+    'verDadosBancariosColaborador',
   ],
   receptionist: [
     'agenda',
@@ -66,6 +70,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
   ],
   accountant: [
     'financeiro',
+    'comissoes',
+    'verDadosBancariosColaborador',
   ],
 };
 

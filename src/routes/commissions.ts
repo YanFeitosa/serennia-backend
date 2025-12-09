@@ -5,6 +5,89 @@ import { AuthRequest } from '../middleware/auth';
 
 const commissionsRouter = Router();
 
+// Get all commission records
+commissionsRouter.get('/', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const salonId = req.user.salonId;
+    const { collaboratorId, startDate, endDate, paid } = req.query as {
+      collaboratorId?: string;
+      startDate?: string;
+      endDate?: string;
+      paid?: string;
+    };
+
+    const where: any = { salonId };
+
+    if (collaboratorId) {
+      where.collaboratorId = collaboratorId;
+    }
+
+    if (paid !== undefined) {
+      where.paid = paid === 'true';
+    }
+
+    // Filter by date using the order's createdAt
+    if (startDate || endDate) {
+      where.order = { createdAt: {} };
+      if (startDate) {
+        where.order.createdAt.gte = new Date(startDate);
+      }
+      if (endDate) {
+        where.order.createdAt.lte = new Date(endDate + 'T23:59:59');
+      }
+    }
+
+    const records = await prisma.commissionRecord.findMany({
+      where,
+      include: {
+        order: {
+          select: {
+            id: true,
+            createdAt: true,
+          },
+        },
+        orderItem: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+          },
+        },
+      },
+      orderBy: {
+        order: {
+          createdAt: 'desc',
+        },
+      },
+    });
+
+    const result = records.map(r => ({
+      id: r.id,
+      salonId: r.salonId,
+      collaboratorId: r.collaboratorId,
+      orderId: r.orderId,
+      orderItemId: r.orderItemId,
+      amount: Number(r.amount),
+      paid: r.paid,
+      paymentDate: r.paymentDate?.toISOString() || null,
+      periodStart: r.periodStart?.toISOString() || null,
+      periodEnd: r.periodEnd?.toISOString() || null,
+      description: r.orderItem?.name || 'Serviço',
+      createdAt: r.order?.createdAt?.toISOString() || null,
+    }));
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching commission records', error);
+    res.status(500).json({ error: 'Failed to fetch commission records' });
+  }
+});
+
 // Get pending commissions by collaborator
 commissionsRouter.get('/pending', async (req: AuthRequest, res: Response) => {
   try {

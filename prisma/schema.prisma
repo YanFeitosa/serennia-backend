@@ -230,6 +230,27 @@ model Collaborator {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
+  // Campos para sistema de comissões
+  commissionMode    CommissionMode     @default(service) // service = usa comissão do serviço, professional = usa taxa do profissional
+  // Informações bancárias para pagamento de comissões
+  pixKey            String?
+  pixKeyType        String?            // cpf, cnpj, email, phone, random
+  bankName          String?
+  bankAgency        String?
+  bankAccount       String?
+  bankAccountType   String?            // corrente, poupanca
+  // Endereço (útil para RPA/folha)
+  address           String?
+  addressNumber     String?
+  addressComplement String?
+  addressNeighborhood String?
+  addressCity       String?
+  addressState      String?
+  addressZipCode    String?
+  // Data de admissão/nascimento
+  hireDate          DateTime?
+  birthDate         DateTime?
+
   salon Salon @relation(fields: [salonId], references: [id])
   user  User? @relation(fields: [userId], references: [id])
 

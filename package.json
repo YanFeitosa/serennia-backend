@@ -15,7 +15,6 @@
     "prisma:generate": "prisma generate",
     "create-users": "ts-node src/scripts/createInitialUsers.ts",
     "create-super-admin": "ts-node src/scripts/createSuperAdmin.ts",
-    "seed": "ts-node src/scripts/seed.ts",
     "run-migration": "ts-node src/scripts/runMigration.ts"
   },
   "dependencies": {

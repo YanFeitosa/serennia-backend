@@ -77,13 +77,27 @@ categoriesRouter.post('/', createRateLimiter, async (req: AuthRequest, res: Resp
       return;
     }
 
-    const category = await prisma.category.create({
-      data: {
-        salonId,
-        type,
-        name: sanitizedName,
-      },
+    // Check if there's a soft-deleted category with the same name — restore it instead of creating a duplicate
+    const softDeleted = await prisma.category.findFirst({
+      where: { salonId, type, name: sanitizedName, deletedAt: { not: null } },
     });
+
+    let category;
+    if (softDeleted) {
+      // Restore the soft-deleted category
+      category = await prisma.category.update({
+        where: { id: softDeleted.id },
+        data: { deletedAt: null, isActive: true },
+      });
+    } else {
+      category = await prisma.category.create({
+        data: {
+          salonId,
+          type,
+          name: sanitizedName,
+        },
+      });
+    }
 
     // Log de auditoria
     const { ipAddress, userAgent } = AuditService.getRequestInfo(req);

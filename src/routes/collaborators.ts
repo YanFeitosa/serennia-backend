@@ -98,7 +98,7 @@ collaboratorsRouter.get('/', async (req: AuthRequest, res: Response) => {
     const salonId = req.user.salonId;
 
     const collaborators = await prisma.collaborator.findMany({
-      where: { salonId },
+      where: { salonId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -237,10 +237,11 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
         const defaultPassword = generateDefaultPassword(sanitizedName, cleanedCPF);
 
         // Create user in Supabase Auth with email confirmation required
+        // User must confirm email to activate their account
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
           email: sanitizeString(email).toLowerCase(),
           password: defaultPassword,
-          email_confirm: false, // User must confirm email to activate
+          email_confirm: false, // User must confirm email before logging in
           user_metadata: {
             salonId: salonId,
             tenantRole: role,
@@ -344,9 +345,8 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
       }
     }
 
-    // If collaborator has email, they start as inactive until email confirmation
-    // Otherwise, use the provided status (default: active)
-    const collaboratorStatus: CollaboratorStatus = email ? 'inactive' : (status ?? 'active');
+    // Use the provided status or default to active
+    const collaboratorStatus: CollaboratorStatus = status ?? 'active';
 
     const collaborator = await prisma.collaborator.create({
       data: {
@@ -670,10 +670,34 @@ collaboratorsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // Soft delete the collaborator
     await prisma.collaborator.update({
       where: { id: existing.id },
       data: { status: 'inactive', deletedAt: new Date() },
     });
+
+    // If collaborator has a linked user, clean up User record and Supabase Auth
+    if (existing.userId) {
+      try {
+        // Soft delete User record
+        await prisma.user.update({
+          where: { id: existing.userId },
+          data: { deletedAt: new Date() },
+        });
+
+        // Delete from Supabase Auth (hard delete - user can no longer login)
+        const { error: supabaseError } = await supabaseAdmin.auth.admin.deleteUser(existing.userId);
+        if (supabaseError) {
+          console.error('Error deleting user from Supabase Auth:', supabaseError);
+          // Don't fail the request, collaborator is already soft-deleted
+        } else {
+          console.log(`✅ User ${existing.userId} removed from Supabase Auth`);
+        }
+      } catch (userCleanupError) {
+        console.error('Error cleaning up user for deleted collaborator:', userCleanupError);
+        // Don't fail - the collaborator soft delete already succeeded
+      }
+    }
 
     // Log de auditoria
     const { ipAddress, userAgent } = AuditService.getRequestInfo(req);

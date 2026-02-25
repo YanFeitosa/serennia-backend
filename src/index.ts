@@ -475,15 +475,25 @@ app.use(errorHandler);
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
 
-// Function to kill process on port (Windows)
+// Function to kill process on port (cross-platform: Linux, Mac, Windows)
 async function killPort(port: number): Promise<boolean> {
   try {
     const execAsync = promisify(exec);
+    const platform = process.platform;
 
-    // Try to find and kill the process on Windows
-    const command = `Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }`;
+    if (platform === 'win32') {
+      // Windows: usar PowerShell
+      const command = `Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }`;
+      await execAsync(`powershell -Command "${command}"`);
+    } else {
+      // Linux/Mac: usar lsof + kill
+      const { stdout } = await execAsync(`lsof -ti:${port}`);
+      const pids = stdout.trim().split('\n').filter(Boolean);
+      for (const pid of pids) {
+        await execAsync(`kill -9 ${pid}`).catch(() => {});
+      }
+    }
 
-    await execAsync(`powershell -Command "${command}"`);
     // Wait a bit for the port to be released
     await new Promise(resolve => setTimeout(resolve, 1500));
     return true;
@@ -534,8 +544,9 @@ async function startServer() {
           console.error(`\n💡 Soluções:`);
           console.error(`   1. Execute: npm run kill:port`);
           console.error(`   2. Ou execute: npm run dev:clean (mata a porta e inicia automaticamente)`);
-          console.error(`   3. Ou encontre e encerre o processo manualmente usando:`);
-          console.error(`      Get-NetTCPConnection -LocalPort ${PORT} | Select-Object -ExpandProperty OwningProcess | Stop-Process -Force\n`);
+          console.error(`   3. Ou encontre e encerre o processo manualmente:`);
+          console.error(`      Linux/Mac: lsof -ti:${PORT} | xargs kill -9`);
+          console.error(`      Windows:   Get-NetTCPConnection -LocalPort ${PORT} | Stop-Process -Force\n`);
           isStarting = false;
           process.exit(1);
         }

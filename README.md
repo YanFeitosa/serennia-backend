@@ -9,7 +9,7 @@ API REST para o sistema de gestão de salões de beleza Serennia.
 - **Prisma ORM** para acesso ao banco de dados
 - **PostgreSQL** como banco de dados (via Supabase)
 - **Supabase Auth** para autenticação
-- **Nodemailer** para envio de emails
+- **Resend** para envio de emails transacionais
 
 ## 📋 Pré-requisitos
 
@@ -48,11 +48,8 @@ SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
 PORT=4000
 FRONTEND_ORIGIN=http://localhost:5173
 
-# Email (SMTP)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=seu-email@gmail.com
-SMTP_PASS=sua-senha-de-app
+# Email (Resend)
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxx
 EMAIL_FROM=Serennia <noreply@serennia.app>
 ```
 
@@ -78,8 +75,9 @@ A API estará disponível em `http://localhost:4000`.
 | `npm run dev` | Inicia em modo desenvolvimento com hot-reload |
 | `npm run build` | Compila o TypeScript para produção |
 | `npm start` | Inicia o servidor compilado |
-| `npm run kill:port` | Libera a porta 4000 se estiver em uso |
+| `npm run kill:port` | Libera a porta 4000 (Linux/Mac/Windows) |
 | `npm run dev:clean` | Limpa a porta e inicia o servidor |
+| `npm run seed` | Popula o banco com dados de teste |
 
 ## 📁 Estrutura do Projeto
 

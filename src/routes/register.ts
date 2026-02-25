@@ -126,19 +126,21 @@ registerRouter.post("/", registerRateLimiter, async (req: Request, res: Response
       return;
     }
 
-    // Check if email already exists in Supabase (using listUsers with filter)
+    // Check if email already exists in Supabase Auth (efficient: direct lookup)
     console.log("Checking if email exists in Supabase Auth...");
     try {
-      // List users and filter by email (Supabase doesn't have direct getUserByEmail in admin API)
+      // Use getUserById is not viable, but we can try createUser and handle duplicate error.
+      // Alternatively, use a direct lookup with the admin API filter parameter.
       const { data: existingUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers({
         page: 1,
-        perPage: 1000, // Adjust if you have more users
-      });
-      
+        perPage: 1,
+        filter: sanitizedEmail,
+      } as any);
+
       if (listError) {
-        console.warn("⚠️ Error listing Supabase users (continuing anyway):", listError);
-      } else if (existingUsers?.users) {
-        const emailExists = existingUsers.users.some(u => 
+        console.warn("⚠️ Error checking Supabase users (continuing anyway):", listError);
+      } else if (existingUsers?.users?.length) {
+        const emailExists = existingUsers.users.some(u =>
           u.email?.toLowerCase() === sanitizedEmail.toLowerCase()
         );
         if (emailExists) {
@@ -146,8 +148,8 @@ registerRouter.post("/", registerRateLimiter, async (req: Request, res: Response
           res.status(409).json({ error: "Este email já está cadastrado" });
           return;
         }
-        console.log("✅ Email not found in Supabase Auth, proceeding with registration");
       }
+      console.log("✅ Email not found in Supabase Auth, proceeding with registration");
     } catch (supabaseCheckError) {
       console.warn("⚠️ Error checking Supabase users (continuing anyway):", supabaseCheckError);
       // Continue with registration even if Supabase check fails

@@ -7,7 +7,7 @@
     "dev:safe": "node scripts/kill-port-and-dev.js",
     "build": "tsc",
     "start": "node dist/index.js",
-    "kill:port": "powershell -ExecutionPolicy Bypass -File scripts/kill-port.ps1",
+    "kill:port": "node -e \"const {execSync}=require('child_process');const p=process.platform;try{p==='win32'?execSync('powershell -ExecutionPolicy Bypass -File scripts/kill-port.ps1',{stdio:'inherit'}):execSync('lsof -ti:4000 | xargs kill -9',{stdio:'inherit'})}catch(e){console.log('Porta 4000 livre')}\"",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "node scripts/migrate-deploy.js",
     "prisma:db:push": "node scripts/db-push.js",
@@ -15,12 +15,14 @@
     "prisma:generate": "prisma generate",
     "create-users": "ts-node src/scripts/createInitialUsers.ts",
     "create-super-admin": "ts-node src/scripts/createSuperAdmin.ts",
+    "seed": "ts-node src/scripts/seed.ts",
     "run-migration": "ts-node src/scripts/runMigration.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
     "@supabase/supabase-js": "^2.84.0",
     "bcrypt": "^6.0.0",
+    "dotenv": "^16.4.7",
     "express": "^4.19.2",
     "express-rate-limit": "^8.2.1",
     "jsonwebtoken": "^9.0.2",

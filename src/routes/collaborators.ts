@@ -271,58 +271,41 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
               },
             });
 
-            // Send email confirmation link
+            // Send invite email with confirmation link via Resend
             try {
               const frontendUrl = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173').split(',')[0].trim().replace(/\/+$/, '');
-              
-              // Generate magic link for email confirmation
-              const { data: confirmData, error: confirmError } = await supabaseAdmin.auth.admin.generateLink({
-                type: 'magiclink',
+              let confirmLink: string | undefined;
+
+              // Generate email confirmation link via Supabase Admin API
+              // Type 'signup' generates the correct confirmation link for unconfirmed users
+              const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+                type: 'signup',
                 email: sanitizeString(email).toLowerCase(),
+                password: defaultPassword,
                 options: {
                   redirectTo: `${frontendUrl}/auth/callback`,
                 },
               });
 
-              if (!confirmError && confirmData?.properties?.action_link) {
-                await sendCollaboratorInviteEmail(
-                  sanitizeString(email).toLowerCase(),
-                  sanitizedName,
-                  salonName,
-                  confirmData.properties.action_link,
-                  defaultPassword
-                );
-              } else {
-                // Fallback: use recovery link
-                const { data: resetData, error: resetError } = await supabaseAdmin.auth.admin.generateLink({
-                  type: 'recovery',
-                  email: sanitizeString(email).toLowerCase(),
-                  options: {
-                    redirectTo: `${frontendUrl}/auth/callback`,
-                  },
-                });
-
-                if (!resetError && resetData?.properties?.action_link) {
-                  await sendCollaboratorInviteEmail(
-                    sanitizeString(email).toLowerCase(),
-                    sanitizedName,
-                    salonName,
-                    resetData.properties.action_link,
-                    defaultPassword
-                  );
-                } else {
-                  // Last fallback: send email with just the password
-                  await sendCollaboratorInviteEmail(
-                    sanitizeString(email).toLowerCase(),
-                    sanitizedName,
-                    salonName,
-                    undefined,
-                    defaultPassword
-                  );
-                }
+              if (linkError) {
+                console.warn('⚠️ Failed to generate signup confirmation link:', linkError.message);
+              } else if (linkData?.properties?.action_link) {
+                confirmLink = linkData.properties.action_link;
+                console.log('✅ Confirmation link generated successfully');
               }
+
+              // Always send the invite email (with or without confirmation link)
+              console.log('📧 Sending collaborator invite email to:', sanitizeString(email).toLowerCase());
+              await sendCollaboratorInviteEmail(
+                sanitizeString(email).toLowerCase(),
+                sanitizedName,
+                salonName,
+                confirmLink,
+                defaultPassword
+              );
+              console.log('✅ Collaborator invite email sent successfully');
             } catch (emailError) {
-              console.error('Error sending invite email:', emailError);
+              console.error('❌ Error sending invite email:', emailError);
               // Don't fail collaborator creation if email fails
             }
           } catch (userError: any) {
@@ -345,8 +328,8 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
       }
     }
 
-    // Use the provided status or default to active
-    const collaboratorStatus: CollaboratorStatus = status ?? 'active';
+    // Collaborators start as inactive by default until manually activated
+    const collaboratorStatus: CollaboratorStatus = status ?? 'inactive';
 
     const collaborator = await prisma.collaborator.create({
       data: {

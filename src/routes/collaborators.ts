@@ -155,14 +155,18 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
       return;
     }
 
-    // CPF is required
-    if (!cpf) {
-      res.status(400).json({ error: 'cpf is required' });
+    if (!email) {
+      res.status(400).json({ error: 'email is required' });
       return;
     }
 
-    // Validate CPF format
-    if (!validateCPF(cpf)) {
+    if (!birthDate) {
+      res.status(400).json({ error: 'birthDate is required' });
+      return;
+    }
+
+    // Validate CPF format (if provided)
+    if (cpf && !validateCPF(cpf)) {
       res.status(400).json({ error: 'Invalid CPF format' });
       return;
     }
@@ -208,14 +212,16 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
       }
     }
 
-    // Check if CPF already exists in salon
-    const cleanedCPFCheck = cpf.replace(/\D/g, '');
-    const existingByCPF = await prisma.collaborator.findFirst({
-      where: { salonId, cpf: cleanedCPFCheck, deletedAt: null },
-    });
-    if (existingByCPF) {
-      res.status(409).json({ error: 'Já existe um colaborador com este CPF' });
-      return;
+    // Check if CPF already exists in salon (if provided)
+    if (cpf) {
+      const cleanedCPFCheck = cpf.replace(/\D/g, '');
+      const existingByCPF = await prisma.collaborator.findFirst({
+        where: { salonId, cpf: cleanedCPFCheck, deletedAt: null },
+      });
+      if (existingByCPF) {
+        res.status(409).json({ error: 'Já existe um colaborador com este CPF' });
+        return;
+      }
     }
 
     // Get salon name for email
@@ -227,14 +233,16 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
 
     let userId: string | null = null;
 
-    // Clean CPF for storage
-    const cleanedCPF = cpf.replace(/\D/g, '');
+    // Clean CPF for storage (if provided)
+    const cleanedCPF = cpf ? cpf.replace(/\D/g, '') : null;
 
     // If email is provided, create user in Supabase and User table
     if (email) {
       try {
-        // Generate default password: firstName (lowercase) + last 4 digits of CPF
-        const defaultPassword = generateDefaultPassword(sanitizedName, cleanedCPF);
+        // Generate default password: firstName (lowercase) + last 4 digits of CPF (or random 4 digits if no CPF)
+        const defaultPassword = cleanedCPF
+          ? generateDefaultPassword(sanitizedName, cleanedCPF)
+          : `${sanitizedName.split(' ')[0].toLowerCase()}${Math.floor(1000 + Math.random() * 9000)}`;
 
         // Create user in Supabase Auth with email confirmation required
         // User must confirm email to activate their account
@@ -276,36 +284,53 @@ collaboratorsRouter.post('/', createRateLimiter, async (req: AuthRequest, res: R
               const frontendUrl = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173').split(',')[0].trim().replace(/\/+$/, '');
               let confirmLink: string | undefined;
 
-              // Generate email confirmation link via Supabase Admin API
-              // Type 'signup' generates the correct confirmation link for unconfirmed users
+              console.log('🔗 Generating invite link for:', sanitizeString(email).toLowerCase());
+              console.log('🔗 Redirect URL:', `${frontendUrl}/auth/callback`);
+
+              // Generate invite confirmation link via Supabase Admin API
+              // Type 'invite' is correct for admin-created users (generates email confirmation link)
+              // Requires: Supabase Dashboard > Authentication > URL Configuration:
+              //   - Site URL configured
+              //   - Redirect URLs must include the frontend callback URL
               const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-                type: 'signup',
+                type: 'invite',
                 email: sanitizeString(email).toLowerCase(),
-                password: defaultPassword,
                 options: {
                   redirectTo: `${frontendUrl}/auth/callback`,
                 },
               });
 
               if (linkError) {
-                console.warn('⚠️ Failed to generate signup confirmation link:', linkError.message);
+                console.warn('⚠️ Failed to generate invite confirmation link:', linkError.message);
+                console.warn('⚠️ Check Supabase Dashboard > Authentication > URL Configuration');
               } else if (linkData?.properties?.action_link) {
                 confirmLink = linkData.properties.action_link;
-                console.log('✅ Confirmation link generated successfully');
+                console.log('✅ Invite confirmation link generated successfully');
+                console.log('🔗 Link preview (first 80 chars):', confirmLink.substring(0, 80) + '...');
+              } else {
+                console.warn('⚠️ generateLink returned success but no action_link in response');
+                console.warn('⚠️ linkData:', JSON.stringify(linkData, null, 2));
               }
 
               // Always send the invite email (with or without confirmation link)
-              console.log('📧 Sending collaborator invite email to:', sanitizeString(email).toLowerCase());
+              const recipientEmail = sanitizeString(email).toLowerCase();
+              console.log('📧 Sending collaborator invite email to:', recipientEmail);
+              console.log('📧 Email FROM:', process.env.EMAIL_FROM || 'DEFAULT: Serennia <onboarding@resend.dev>');
+              console.log('📧 Has RESEND_API_KEY:', !!process.env.RESEND_API_KEY);
+              console.log('📧 Has confirm link:', !!confirmLink);
+              console.log('📧 Has default password:', !!defaultPassword);
+
               await sendCollaboratorInviteEmail(
-                sanitizeString(email).toLowerCase(),
+                recipientEmail,
                 sanitizedName,
                 salonName,
                 confirmLink,
                 defaultPassword
               );
-              console.log('✅ Collaborator invite email sent successfully');
-            } catch (emailError) {
-              console.error('❌ Error sending invite email:', emailError);
+              console.log('✅ Collaborator invite email sent successfully to', recipientEmail);
+            } catch (emailError: any) {
+              console.error('❌ Error sending invite email:', emailError?.message || emailError);
+              console.error('❌ Full error:', JSON.stringify(emailError, Object.getOwnPropertyNames(emailError || {}), 2));
               // Don't fail collaborator creation if email fails
             }
           } catch (userError: any) {

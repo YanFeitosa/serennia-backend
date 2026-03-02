@@ -163,6 +163,7 @@ model Salon {
   messageTemplates MessageTemplate[]
   messageLogs   MessageLog[]
   totemDevices  TotemDevice[]
+  queueEntries  QueueEntry[]
 }
 
 model TotemDevice {
@@ -225,6 +226,7 @@ model Client {
   appointments Appointment[]
   orders       Order[]
   messageLogs  MessageLog[]
+  queueEntries QueueEntry[]
 
   @@unique([salonId, phone])
   @@index([deletedAt])
@@ -275,6 +277,7 @@ model Collaborator {
   orderItems        OrderItem[]
   commissionRecords CommissionRecord[]
   commissionPayments CommissionPayment[]
+  queueEntries  QueueEntry[]
 
   @@unique([salonId, phone])
   @@unique([salonId, email])
@@ -365,6 +368,7 @@ model Appointment {
   services AppointmentService[]
   order    Order?               @relation("AppointmentToOrder", fields: [orderId], references: [id])
   messageLogs MessageLog[]
+  queueEntry  QueueEntry?
 }
 
 model AppointmentService {
@@ -560,4 +564,23 @@ model CommissionPayment {
 
   salon        Salon        @relation(fields: [salonId], references: [id])
   collaborator Collaborator @relation(fields: [collaboratorId], references: [id])
+}
+
+model QueueEntry {
+  id             String    @id @default(uuid())
+  salonId        String
+  clientId       String
+  collaboratorId String
+  appointmentId  String    @unique
+  position       Int
+  notes          String?
+  arrivedAt      DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+
+  salon        Salon        @relation(fields: [salonId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  collaborator Collaborator @relation(fields: [collaboratorId], references: [id])
+  appointment  Appointment  @relation(fields: [appointmentId], references: [id])
+
+  @@index([salonId, arrivedAt])
 }

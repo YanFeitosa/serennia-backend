@@ -23,6 +23,7 @@ import { expensesRouter } from "./routes/expenses";
 import { paymentsRouter } from "./routes/payments";
 import { commissionsRouter } from "./routes/commissions";
 import { salonsRouter } from "./routes/salons";
+import { queueRouter } from "./routes/queue";
 import { authMiddleware, AuthRequest } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
 import { apiRateLimiter, createRateLimiter } from "./middleware/rateLimiter";
@@ -112,6 +113,7 @@ app.use("/expenses", apiRateLimiter, authMiddleware, expensesRouter);
 app.use("/payments", paymentsRouter);
 app.use("/commissions", apiRateLimiter, authMiddleware, commissionsRouter);
 app.use("/salons", apiRateLimiter, authMiddleware, salonsRouter);
+app.use("/queue", apiRateLimiter, authMiddleware, queueRouter);
 
 // Health check - public endpoint accessible from any origin (for load balancers, monitoring, etc.)
 app.get("/health", async (_req: Request, res: Response) => {
